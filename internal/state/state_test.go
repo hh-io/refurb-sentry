@@ -38,7 +38,7 @@ func TestColdStartIsSilent(t *testing.T) {
 	}
 
 	// 基线建立后进入正常模式,新货号才应报「上架」
-	s.Bootstrapped = true
+	s.Bootstrapped["CN/mac"] = true
 	evs = s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000), prod("B/A", 200000), prod("C/A", 300000)}, now)
 	if k := kinds(evs); k[EventListed] != 1 || len(evs) != 1 {
 		t.Fatalf("期望恰好 1 条上架事件,实际 %v", k)
@@ -47,7 +47,7 @@ func TestColdStartIsSilent(t *testing.T) {
 
 func TestPriceDropAndRise(t *testing.T) {
 	s := New()
-	s.Bootstrapped = true
+	s.Bootstrapped["CN/mac"] = true
 	now := time.Now()
 	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, now)
 
@@ -71,7 +71,7 @@ func TestPriceDropAndRise(t *testing.T) {
 
 func TestDelistedRequiresSustainedEmpty(t *testing.T) {
 	s := New()
-	s.Bootstrapped = true
+	s.Bootstrapped["CN/mac"] = true
 	now := time.Now()
 	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000), prod("B/A", 200000)}, now)
 
@@ -97,7 +97,7 @@ func TestDelistedRequiresSustainedEmpty(t *testing.T) {
 // 单件商品消失(列表非空)应立即判下架,不受空结果阈值影响。
 func TestSingleItemDelistedImmediately(t *testing.T) {
 	s := New()
-	s.Bootstrapped = true
+	s.Bootstrapped["CN/mac"] = true
 	now := time.Now()
 	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000), prod("B/A", 200000)}, now)
 
@@ -110,7 +110,8 @@ func TestSingleItemDelistedImmediately(t *testing.T) {
 // 不同地区/分类互不干扰:抓 US 不能把 CN 的记录判为下架。
 func TestScopeIsolation(t *testing.T) {
 	s := New()
-	s.Bootstrapped = true
+	s.Bootstrapped["CN/mac"] = true
+	s.Bootstrapped["US/mac"] = true
 	now := time.Now()
 	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, now)
 
@@ -130,7 +131,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "sub", "state.json")
 
 	s := New()
-	s.Bootstrapped = true
+	s.Bootstrapped["CN/mac"] = true
 	now := time.Now().Truncate(time.Second)
 	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, now)
 
@@ -141,7 +142,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("加载失败: %v", err)
 	}
-	if !got.Bootstrapped || got.CountScope("CN", "mac") != 1 {
+	if !got.IsBootstrapped("CN", "mac") || got.CountScope("CN", "mac") != 1 {
 		t.Fatalf("往返后状态不一致: %+v", got)
 	}
 	if got.Items["CN/mac/A/A"].PriceCents != 100000 {
@@ -155,7 +156,58 @@ func TestLoadMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("文件缺失不应报错: %v", err)
 	}
-	if s.Bootstrapped {
+	if s.IsBootstrapped("CN", "mac") {
 		t.Fatal("全新状态不应标记为已 bootstrap")
+	}
+}
+
+// 给已在运行的部署新增地区或分类时,新范围必须静默建立基线。
+// 用全局 bootstrapped 标志时,新增一个地区会把它数百件在架商品全报成「上架」。
+func TestNewScopeBootstrapsSilently(t *testing.T) {
+	s := New()
+	now := time.Now()
+
+	// CN 已在监控中,基线建好
+	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, now)
+	if evs := s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000), prod("B/A", 200000)}, now); len(evs) != 1 {
+		t.Fatalf("CN 已建基线,新货号应报上架,实际 %+v", evs)
+	}
+
+	// 此时往配置里加了 US:它的首轮必须静默
+	us := prod("X/A", 50000)
+	us.Region, us.Currency = "US", "USD"
+	us2 := prod("Y/A", 60000)
+	us2.Region, us2.Currency = "US", "USD"
+	if evs := s.Apply("US", "mac", []apple.Product{us, us2}, now); len(evs) != 0 {
+		t.Fatalf("新增地区的首轮必须静默,实际推出 %d 条: %+v", len(evs), evs)
+	}
+	if s.CountScope("US", "mac") != 2 {
+		t.Fatal("新增地区仍应建立基线")
+	}
+	// 第二轮起才报变化
+	us3 := prod("Z/A", 70000)
+	us3.Region, us3.Currency = "US", "USD"
+	if evs := s.Apply("US", "mac", []apple.Product{us, us2, us3}, now); len(evs) != 1 {
+		t.Fatalf("新增地区第二轮应报上架,实际 %+v", evs)
+	}
+}
+
+// 首轮某个地区抓取失败(调用方跳过 Apply)时,不能因为别的地区成功
+// 就把失败地区也当成已建基线——否则它下一轮会把全部在架商品报成上架。
+func TestFailedScopeStaysUnbootstrapped(t *testing.T) {
+	s := New()
+	now := time.Now()
+
+	// CN 成功,US 因网络失败,调用方不会为 US 调用 Apply
+	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, now)
+	if s.IsBootstrapped("US", "mac") {
+		t.Fatal("未成功抓取过的范围不应被标记为已建基线")
+	}
+
+	// US 下一轮成功,必须静默建基线
+	us := prod("X/A", 50000)
+	us.Region, us.Currency = "US", "USD"
+	if evs := s.Apply("US", "mac", []apple.Product{us}, now); len(evs) != 0 {
+		t.Fatalf("此前失败的范围首次成功时应静默,实际 %+v", evs)
 	}
 }

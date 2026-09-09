@@ -25,7 +25,9 @@ func Load(path string) (*State, error) {
 		return nil, fmt.Errorf("解析状态文件 %s(可手动删除该文件以重建基线): %w", path, err)
 	}
 	if s.Version != stateVersion {
-		return nil, fmt.Errorf("状态文件 %s 版本为 %d,当前程序期望 %d,请删除该文件重建基线",
+		return nil, fmt.Errorf(
+			"状态文件 %s 版本为 %d,当前程序期望 %d。请删除该文件:"+
+				"下次启动会静默重建基线(不会产生误报通知),仅会丢失商品的首次发现时间",
 			path, s.Version, stateVersion)
 	}
 	if s.Items == nil {
@@ -33,6 +35,9 @@ func Load(path string) (*State, error) {
 	}
 	if s.EmptyStreak == nil {
 		s.EmptyStreak = make(map[string]int)
+	}
+	if s.Bootstrapped == nil {
+		s.Bootstrapped = make(map[string]bool)
 	}
 	return &s, nil
 }

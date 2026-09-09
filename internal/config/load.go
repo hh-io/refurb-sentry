@@ -42,7 +42,13 @@ func ExpandEnv(s string) (string, error) {
 // expandNode 在 YAML 节点树上展开环境变量,而不是在原始文本上做替换。
 // 这样注释里出现的 ${VAR} 不会被误当成引用,展开后的值也由 YAML 序列化器
 // 负责转义,含引号或换行的密钥不会撕裂配置结构。
-func expandNode(n *yaml.Node) error {
+//
+// skip 中的子树不展开:那是被 enabled: false 关掉的通知渠道,
+// 不该因为它配置里写着 ${TELEGRAM_BOT_TOKEN} 就要求用户去设这个变量。
+func expandNode(n *yaml.Node, skip map[*yaml.Node]bool) error {
+	if skip[n] {
+		return nil
+	}
 	// 只处理字符串标量:数字与布尔标量不该被当作模板,
 	// 且保持原 Tag 可以让 "123" 这类展开结果仍作为字符串解析。
 	if n.Kind == yaml.ScalarNode && n.Tag == "!!str" {
@@ -53,11 +59,50 @@ func expandNode(n *yaml.Node) error {
 		n.Value = v
 	}
 	for _, c := range n.Content {
-		if err := expandNode(c); err != nil {
+		if err := expandNode(c, skip); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// disabledChannelNodes 找出 channels 里 enabled: false 的条目子树。
+func disabledChannelNodes(root *yaml.Node) map[*yaml.Node]bool {
+	out := map[*yaml.Node]bool{}
+	doc := root
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return out
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		if doc.Content[i].Value != "channels" {
+			continue
+		}
+		seq := doc.Content[i+1]
+		if seq.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, ch := range seq.Content {
+			if channelDisabled(ch) {
+				out[ch] = true
+			}
+		}
+	}
+	return out
+}
+
+func channelDisabled(ch *yaml.Node) bool {
+	if ch.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(ch.Content); i += 2 {
+		if ch.Content[i].Value == "enabled" && ch.Content[i+1].Value == "false" {
+			return true
+		}
+	}
+	return false
 }
 
 // Load 读取并校验配置文件。
@@ -71,7 +116,7 @@ func Load(path string) (*Config, []string, error) {
 	if err := yaml.Unmarshal(raw, &root); err != nil {
 		return nil, nil, fmt.Errorf("解析配置文件 %s: %w", path, err)
 	}
-	if err := expandNode(&root); err != nil {
+	if err := expandNode(&root, disabledChannelNodes(&root)); err != nil {
 		return nil, nil, fmt.Errorf("配置文件 %s: %w", path, err)
 	}
 
@@ -89,7 +134,9 @@ func Load(path string) (*Config, []string, error) {
 		return nil, nil, fmt.Errorf("解析配置文件 %s: %w", path, err)
 	}
 
-	applyEnvOverrides(&cfg)
+	if err := applyEnvOverrides(&cfg); err != nil {
+		return nil, nil, err
+	}
 
 	warnings, err := cfg.Validate()
 	if err != nil {
@@ -100,11 +147,16 @@ func Load(path string) (*Config, []string, error) {
 
 // applyEnvOverrides 允许用环境变量覆盖少量常改的顶层项,
 // 便于在容器或 systemd 单元里不改配置文件就调整行为。
-func applyEnvOverrides(c *Config) {
+//
+// 取值非法时直接报错而不是跳过:静默沿用默认值会让人以为覆盖已经生效,
+// 与 ExpandEnv 对缺失变量的处理保持同一种态度。
+func applyEnvOverrides(c *Config) error {
 	if v := os.Getenv("REFURB_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			c.Interval = Duration(d)
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("环境变量 REFURB_INTERVAL=%q 不是合法时长(如 120s、2m): %w", v, err)
 		}
+		c.Interval = Duration(d)
 	}
 	if v := os.Getenv("REFURB_STATE_PATH"); v != "" {
 		c.StatePath = v
@@ -122,10 +174,13 @@ func applyEnvOverrides(c *Config) {
 		c.Categories = splitList(v)
 	}
 	if v := os.Getenv("REFURB_DIGEST_THRESHOLD"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			c.Notify.DigestThreshold = n
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("环境变量 REFURB_DIGEST_THRESHOLD=%q 必须是正整数", v)
 		}
+		c.Notify.DigestThreshold = n
 	}
+	return nil
 }
 
 func splitList(v string) []string {

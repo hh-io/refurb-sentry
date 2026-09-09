@@ -125,15 +125,36 @@ func TestFormatPrice(t *testing.T) {
 }
 
 // 香港/日本站的 BaseURL 自带路径前缀,商品相对链接必须挂回站点根。
+// 样本取自各站真实的 productDetailsUrl:HK/JP 的相对路径自带 /hk-zh、/jp 前缀,
+// 而 CN 站因为域名本身就是 apple.com.cn,路径不带前缀。
 func TestProductURL(t *testing.T) {
+	cases := []struct {
+		region string
+		rel    string
+		want   string
+	}{
+		{"HK", "/hk-zh/shop/product/fwuc3zp/a", "https://www.apple.com/hk-zh/shop/product/fwuc3zp/a"},
+		{"JP", "/jp/shop/product/fhfa4j/a", "https://www.apple.com/jp/shop/product/fhfa4j/a"},
+		{"CN", "/shop/product/fhfa4ch/a", "https://www.apple.com.cn/shop/product/fhfa4ch/a"},
+		{"US", "/shop/product/fhfa4ll/a", "https://www.apple.com/shop/product/fhfa4ll/a"},
+	}
+	for _, c := range cases {
+		r, err := LookupRegion(c.region)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := r.ProductURL(c.rel); got != c.want {
+			t.Errorf("%s 商品链接\n  got  %s\n  want %s", c.region, got, c.want)
+		}
+	}
+
+	// 缺链接时兜底到该地区翻新店首页,而不是某个具体分类
 	hk, _ := LookupRegion("HK")
-	if got, want := hk.ProductURL("/shop/product/abc/a"), "https://www.apple.com/shop/product/abc/a"; got != want {
-		t.Errorf("HK 商品链接\n  got  %s\n  want %s", got, want)
+	if got, want := hk.ProductURL(""), "https://www.apple.com/hk-zh/shop/refurbished"; got != want {
+		t.Errorf("空链接兜底\n  got  %s\n  want %s", got, want)
 	}
+
 	cn, _ := LookupRegion("CN")
-	if got, want := cn.ProductURL("/shop/product/abc/a"), "https://www.apple.com.cn/shop/product/abc/a"; got != want {
-		t.Errorf("CN 商品链接\n  got  %s\n  want %s", got, want)
-	}
 	if got := cn.GridURL("mac"); got != "https://www.apple.com.cn/shop/refurbished/mac" {
 		t.Errorf("列表页链接有误: %s", got)
 	}

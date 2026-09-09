@@ -27,7 +27,7 @@ func main() {
 	var (
 		configPath  = flag.String("config", "configs/config.yaml", "配置文件路径")
 		once        = flag.Bool("once", false, "只执行一轮后退出")
-		dryRun      = flag.Bool("dry-run", false, "不实际推送,把通知内容打印到标准输出")
+		dryRun      = flag.Bool("dry-run", false, "试运行:通知打印到标准输出,且不写入状态文件")
 		listDims    = flag.Bool("list-dims", false, "列出各地区/分类当前可用的过滤维度与取值后退出")
 		showVersion = flag.Bool("version", false, "打印版本后退出")
 	)
@@ -78,7 +78,10 @@ func run(configPath string, once, dryRun, listDims bool) error {
 
 	// -list-dims 只查询上游,既不读写状态也不推送,因此跳过渠道与状态库的准备。
 	if listDims {
-		runner, err := app.NewRunner(cfg, client, rules, notify.NewMulti(nil, log), state.New(), log)
+		runner, err := app.NewRunner(app.Options{
+			Config: cfg, Client: client, Rules: rules,
+			Notifier: notify.NewMulti(nil, log), State: state.New(), Logger: log,
+		})
 		if err != nil {
 			return err
 		}
@@ -98,7 +101,10 @@ func run(configPath string, once, dryRun, listDims bool) error {
 		return err
 	}
 
-	runner, err := app.NewRunner(cfg, client, rules, notify.NewMulti(notifiers, log), st, log)
+	runner, err := app.NewRunner(app.Options{
+		Config: cfg, Client: client, Rules: rules,
+		Notifier: notify.NewMulti(notifiers, log), State: st, Logger: log, DryRun: dryRun,
+	})
 	if err != nil {
 		return err
 	}

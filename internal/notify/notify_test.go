@@ -155,12 +155,31 @@ func TestMultiIsolatesFailures(t *testing.T) {
 	w1, _ := NewWebhook(WebhookOptions{Name: "bad", URL: bad.URL})
 	w2, _ := NewWebhook(WebhookOptions{Name: "good", URL: good.URL})
 
-	err := NewMulti([]Notifier{w1, w2}, discardLogger()).Send(
+	sent, err := NewMulti([]Notifier{w1, w2}, discardLogger()).Send(
 		context.Background(), RenderEvent(sampleEvent(state.EventListed), "g"))
 	if err == nil {
 		t.Error("应回报失败渠道的错误")
 	}
 	if !okCalled {
 		t.Error("前一个渠道失败不应阻断后续渠道")
+	}
+	if sent != 1 {
+		t.Errorf("应有 1 个渠道送达成功,实际 %d", sent)
+	}
+}
+
+// 全部渠道失败时 sent 必须为 0——调用方据此决定不推进状态基线。
+func TestMultiReportsTotalFailure(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+
+	w1, _ := NewWebhook(WebhookOptions{Name: "bad1", URL: bad.URL})
+	w2, _ := NewWebhook(WebhookOptions{Name: "bad2", URL: bad.URL})
+	sent, err := NewMulti([]Notifier{w1, w2}, discardLogger()).Send(
+		context.Background(), RenderEvent(sampleEvent(state.EventListed), "g"))
+	if sent != 0 || err == nil {
+		t.Fatalf("全部失败时应返回 sent=0 与错误,实际 sent=%d err=%v", sent, err)
 	}
 }

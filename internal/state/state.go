@@ -8,7 +8,8 @@ import (
 )
 
 // stateVersion 用于将来变更磁盘格式时做迁移判断。
-const stateVersion = 1
+// v2 起 bootstrapped 由全局布尔改为按 region/category 记录。
+const stateVersion = 2
 
 // emptyStreakThreshold 是「抓到空列表」需连续出现多少轮才认定该分类真的清空了。
 // 单次空结果更可能是上游抖动或改版,据此判下架会一次性误报整个分类。
@@ -50,16 +51,21 @@ type State struct {
 	// EmptyStreak 按 "region/category" 记录连续抓到空列表的轮数。
 	EmptyStreak map[string]int `json:"empty_streak,omitempty"`
 
-	// Bootstrapped 为 false 表示这是首次运行:本轮只建立基线,不发任何通知,
-	// 否则首轮会把全部数百件在售商品当成「新上架」一次性推出去。
-	Bootstrapped bool `json:"bootstrapped"`
+	// Bootstrapped 按 "region/category" 记录该范围是否已建立基线。
+	//
+	// 刻意做成按 scope 而不是一个全局标志:全局标志有两个漏洞——
+	// 其一,首轮若某个地区抓取失败,其余地区成功即把全局标志置真,
+	// 该地区下一轮成功时数百件在架商品会被当成新上架推出去;
+	// 其二,给已在运行的部署新增一个地区或分类时,同样会刷屏。
+	Bootstrapped map[string]bool `json:"bootstrapped"`
 }
 
 func New() *State {
 	return &State{
-		Version:     stateVersion,
-		Items:       make(map[string]Entry),
-		EmptyStreak: make(map[string]int),
+		Version:      stateVersion,
+		Items:        make(map[string]Entry),
+		EmptyStreak:  make(map[string]int),
+		Bootstrapped: make(map[string]bool),
 	}
 }
 
@@ -92,11 +98,19 @@ type Event struct {
 	Rules []string
 }
 
+// IsBootstrapped 表示该地区/分类是否已建立过基线。
+func (s *State) IsBootstrapped(region, category string) bool {
+	return s.Bootstrapped[region+"/"+category]
+}
+
 // Apply 用一次**成功**抓取的结果更新状态并计算事件。
 // 调用方必须保证只在抓取成功时调用——抓取失败时调用会把整个分类误判为下架。
+//
+// 该 scope 尚未建立基线时只落盘、不产生事件。
 func (s *State) Apply(region, category string, products []apple.Product, now time.Time) []Event {
 	scope := region + "/" + category
 	prefix := scope + "/"
+	first := !s.Bootstrapped[scope]
 
 	// 空结果先攒够连续次数再当真,避免一次抖动清空整个分类。
 	if len(products) == 0 {
@@ -151,8 +165,9 @@ func (s *State) Apply(region, category string, products []apple.Product, now tim
 
 	s.UpdatedAt = now
 
-	// 首轮只落基线。事件已在上面被消费掉(状态已更新),这里丢弃即可。
-	if !s.Bootstrapped {
+	// 该范围首次成功抓取:只落基线。事件已在上面被消费掉(状态已更新),这里丢弃即可。
+	if first {
+		s.Bootstrapped[scope] = true
 		return nil
 	}
 	return events

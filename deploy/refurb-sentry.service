@@ -18,6 +18,12 @@ WorkingDirectory=/opt/refurb-sentry
 EnvironmentFile=/etc/refurb-sentry/refurb-sentry.env
 ExecStart=/opt/refurb-sentry/refurb-sentry -config /etc/refurb-sentry/config.yaml
 
+# 由 systemd 创建并授权 /var/lib/refurb-sentry。
+# 配置里的 state_path 请相应写成 /var/lib/refurb-sentry/state.json——
+# 这比 ReadWritePaths 指向一个可能尚不存在的目录可靠:
+# ProtectSystem=strict 下那种写法会在挂载命名空间阶段直接让单元起不来。
+StateDirectory=refurb-sentry
+
 # 进程退出后自动拉起;30 秒间隔避免配置写错时疯狂重启刷日志。
 Restart=always
 RestartSec=30
@@ -33,8 +39,6 @@ ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
-# 状态文件所在目录必须可写
-ReadWritePaths=/opt/refurb-sentry/data
 
 [Install]
 WantedBy=multi-user.target

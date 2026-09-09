@@ -111,9 +111,12 @@ func (c *Client) FetchGrid(ctx context.Context, region Region, category string) 
 	}
 	// 货币不符说明请求被重定向到了别的地区站(常见于代理出口地区与目标不匹配)。
 	// 此时数据是「另一个地区的」,若继续参与 diff 会造成大面积误报。
-	if len(g.Products) > 0 && g.Products[0].Currency != region.Currency {
-		return nil, fmt.Errorf("地区 %s 期望货币 %s,实际拿到 %s:请求可能被重定向到其他地区站点",
-			region.Code, region.Currency, g.Products[0].Currency)
+	//
+	// 注意这道护栏只在货币确实不同时有效:欧元区多个地区共用 EUR,
+	// 落到错误的欧盟国家站点时它发现不了,详见 README 中的说明。
+	if g.CurrencyMismatch > 0 {
+		return nil, fmt.Errorf("地区 %s 期望货币 %s,但有 %d/%d 件商品自报其它货币:请求可能被重定向到其他地区站点",
+			region.Code, region.Currency, g.CurrencyMismatch, len(g.Products)+g.CurrencyMismatch)
 	}
 	return g, nil
 }

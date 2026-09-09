@@ -146,3 +146,78 @@ func TestEnvOverrides(t *testing.T) {
 		t.Errorf("REFURB_INTERVAL 未覆盖: %v", cfg.Interval.Std())
 	}
 }
+
+// 被 enabled: false 关掉的渠道不该要求它的密钥,否则示例配置开箱即挂:
+// 用户照 README 只 export BARK_KEY,却被未启用的 telegram 渠道拦住。
+func TestDisabledChannelSkipsEnvExpansion(t *testing.T) {
+	t.Setenv("TEST_ONLY_BARK", "bark-key")
+	p := writeConfig(t, `
+regions: [CN]
+categories: [mac]
+channels:
+  - type: bark
+    enabled: true
+    device_key: ${TEST_ONLY_BARK}
+  - type: webhook
+    name: telegram
+    enabled: false
+    url: https://api.telegram.org/bot${NEVER_SET_TOKEN}/sendMessage
+    body: |
+      {"chat_id":{{json "${NEVER_SET_CHAT_ID}"}},"text":{{json .Text}}}
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("未启用的渠道不该要求其环境变量: %v", err)
+	}
+	if cfg.Channels[0].DeviceKey != "bark-key" {
+		t.Errorf("启用渠道的变量仍应展开: %q", cfg.Channels[0].DeviceKey)
+	}
+}
+
+// 反过来:启用的渠道缺变量必须报错,不能因为上面的放宽而漏掉。
+func TestEnabledChannelStillRequiresEnv(t *testing.T) {
+	p := writeConfig(t, `
+regions: [CN]
+categories: [mac]
+channels:
+  - type: webhook
+    enabled: true
+    url: https://example.invalid/${NEVER_SET_TOKEN_2}
+`)
+	_, _, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "NEVER_SET_TOKEN_2") {
+		t.Fatalf("启用渠道缺少环境变量时应报错,实际: %v", err)
+	}
+}
+
+// 环境变量覆盖取值非法时必须报错,而不是默默沿用默认值让人以为覆盖生效了。
+func TestInvalidEnvOverrideIsFatal(t *testing.T) {
+	for _, c := range []struct{ key, val, want string }{
+		{"REFURB_INTERVAL", "5min", "REFURB_INTERVAL"},
+		{"REFURB_DIGEST_THRESHOLD", "abc", "REFURB_DIGEST_THRESHOLD"},
+		{"REFURB_DIGEST_THRESHOLD", "0", "REFURB_DIGEST_THRESHOLD"},
+	} {
+		t.Run(c.key+"="+c.val, func(t *testing.T) {
+			t.Setenv(c.key, c.val)
+			_, _, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\n"))
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("期望报出 %s 的错误,实际: %v", c.want, err)
+			}
+		})
+	}
+}
+
+// 地区与分类的大小写应与规则里的写法一致地宽容,并归一化为规范形式。
+func TestRegionCategoryCaseInsensitive(t *testing.T) {
+	t.Setenv("REFURB_REGIONS", "cn, us")
+	cfg, _, err := Load(writeConfig(t, "regions: [CN]\ncategories: [MAC]\n"))
+	if err != nil {
+		t.Fatalf("大小写不应导致失败: %v", err)
+	}
+	if cfg.Regions[0] != "CN" || cfg.Regions[1] != "US" {
+		t.Errorf("地区应归一化为大写: %v", cfg.Regions)
+	}
+	if cfg.Categories[0] != "mac" {
+		t.Errorf("分类应归一化为小写: %v", cfg.Categories)
+	}
+}

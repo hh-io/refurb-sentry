@@ -30,12 +30,20 @@
 
 ## 三条不能破坏的正确性约束
 
-1. **冷启动必须静默**。首次运行数百件在架商品全是"新增",直接推送会刷屏。
-   由 `State.Bootstrapped` 控制,见 `internal/state/state.go`。
+1. **冷启动必须静默,且按 region/category 分别记录**。首次抓取时数百件在架商品全是"新增",
+   直接推送会刷屏。`State.Bootstrapped` 是 `map[string]bool` 而非全局布尔——
+   全局标志有两个漏洞:首轮某地区失败而其余成功会把它也标记为已建基线;
+   给运行中的实例新增地区/分类时同样会刷屏。改动这里前先看
+   `TestNewScopeBootstrapsSilently` 与 `TestFailedScopeStaysUnbootstrapped`。
 2. **抓取失败绝不能触发下架**。任何 error / `ErrNoBootstrap` 都必须跳过该分类而不调用 `State.Apply`。
    连续空结果要攒够 `emptyStreakThreshold` 轮才认定真空。
 3. **首轮遇到不可用分类必须在写入任何状态前退出**。`RunOnce` 为此刻意分成
    「先抓全、再统一比对」两阶段,否则会留下只覆盖部分范围的残缺基线。
+
+4. **`-dry-run` 不得有任何副作用**,包括不写状态文件。一次 dry-run 若撞上真实降价,
+   把它吸收进基线会让正式进程永远不再推送该降价。
+5. **一轮内所有渠道都推送失败时不推进基线**,让这批变动下一轮重新产生并重试,
+   而不是被永久吞掉。`Multi.Send` 为此返回成功渠道数。
 
 ## 设计取舍
 
@@ -44,6 +52,10 @@
 - 依赖只有 `gopkg.in/yaml.v3` 和 `golang.org/x/net`(SOCKS5),其余全标准库。
   加新依赖前先确认标准库真的做不到。
 - 配置在 **YAML 节点层**展开环境变量,不是文本替换——否则注释里的 `${VAR}` 会被误当引用。
+  且 `enabled: false` 的渠道整棵子树跳过展开:示例配置里禁用的 telegram 渠道
+  不该逼用户去设 `TELEGRAM_BOT_TOKEN`(这曾让 README 的快速开始必然失败)。
+- 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
+  代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 
 ## 开发
 

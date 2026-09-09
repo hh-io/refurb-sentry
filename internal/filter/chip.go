@@ -81,7 +81,15 @@ func ParseSpec(title string) Spec {
 	t := NormalizeTitle(title)
 	var s Spec
 
-	if chipHintRE.MatchString(t) {
+	s.CPUCores = firstInt(t, cpuREs)
+	s.GPUCores = firstInt(t, gpuREs)
+
+	// 标题里已经出现 CPU/GPU 核心数,本身就足以说明它在描述一台带芯片的机器,
+	// 此时不必再要求出现 Apple/chip 之类的指示词。
+	// 西班牙站的 16 吋 MacBook Pro 正是这种写法——
+	// "MacBook Pro reacondicionado de 16 pulgadas con M4 Pro, CPU de 14 núcleos y GPU de 20 núcleos"
+	// 通篇没有 Apple 也没有 chip,只靠指示词会漏掉整整一档机型。
+	if chipHintRE.MatchString(t) || s.CPUCores > 0 || s.GPUCores > 0 {
 		if m := chipRE.FindStringSubmatch(t); m != nil {
 			s.Chip = m[1]
 			if m[2] != "" {
@@ -89,8 +97,6 @@ func ParseSpec(title string) Spec {
 			}
 		}
 	}
-	s.CPUCores = firstInt(t, cpuREs)
-	s.GPUCores = firstInt(t, gpuREs)
 	return s
 }
 

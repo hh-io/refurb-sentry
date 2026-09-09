@@ -66,17 +66,22 @@ func (m *Multi) Names() []string {
 	return out
 }
 
-func (m *Multi) Send(ctx context.Context, msg Message) error {
+// Send 把消息发给所有渠道,返回成功送达的渠道数与合并后的错误。
+// 调用方据成功数判断消息是否至少送出去了一份——全军覆没时不应推进状态基线,
+// 否则这批变动会被永久吞掉。
+func (m *Multi) Send(ctx context.Context, msg Message) (int, error) {
 	var errs []error
+	sent := 0
 	for _, n := range m.notifiers {
 		if err := n.Send(ctx, msg); err != nil {
 			m.log.Error("推送失败", "channel", n.Name(), "err", err)
 			errs = append(errs, fmt.Errorf("%s: %w", n.Name(), err))
 			continue
 		}
+		sent++
 		m.log.Info("推送成功", "channel", n.Name(), "title", msg.Title)
 	}
-	return errors.Join(errs...)
+	return sent, errors.Join(errs...)
 }
 
 // RenderEvent 把单条事件渲染成一条通知。

@@ -11,7 +11,8 @@ interval: 120s
 state_path: data/state.json
 log_level: info
 
-# 监控范围。可选地区:AU CA CN DE HK JP SG UK US
+# 监控范围。可选地区(19 个):
+#   AU BE CA CH CN DE ES FR HK IE IT JP KR NL NZ SG TW UK US
 # 注意各地区提供的分类不同(实测 CN/HK 没有 iphone 与 appletv,请求会返回 404),
 # 首轮启动会校验并明确报错。
 regions:

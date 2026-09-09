@@ -3,6 +3,7 @@ package apple
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 type Region struct {
@@ -40,8 +41,10 @@ var regions = map[string]Region{
 // (实测 CN/HK 无 iphone 与 appletv,请求会返回 404),由启动校验负责发现。
 var Categories = []string{"mac", "ipad", "iphone", "watch", "airpods", "appletv", "homepod", "accessories"}
 
+// LookupRegion 大小写不敏感:配置文件、环境变量与命令行里人手写的地区码
+// 不该因为大小写而查不到。
 func LookupRegion(code string) (Region, error) {
-	r, ok := regions[code]
+	r, ok := regions[strings.ToUpper(strings.TrimSpace(code))]
 	if !ok {
 		return Region{}, fmt.Errorf("未知地区 %q,支持的地区:%v", code, RegionCodes())
 	}
@@ -57,7 +60,9 @@ func RegionCodes() []string {
 	return codes
 }
 
+// ValidCategory 同样大小写不敏感。
 func ValidCategory(c string) bool {
+	c = strings.ToLower(strings.TrimSpace(c))
 	for _, k := range Categories {
 		if k == c {
 			return true
@@ -74,8 +79,10 @@ func (r Region) GridURL(category string) string {
 // ProductURL 把页面给的相对路径补成绝对地址。相对路径以 /shop/... 开头,
 // 而 HK/JP 这类地区的 BaseURL 自带路径前缀,需拼在站点根之后。
 func (r Region) ProductURL(rel string) string {
+	// 兜底到该地区翻新店首页,而不是某个具体分类——
+	// watch 商品缺链接时跳到 mac 列表页只会让人困惑。
 	if rel == "" {
-		return r.GridURL("mac")
+		return r.BaseURL + "/shop/refurbished"
 	}
 	if len(rel) > 4 && (rel[:5] == "http:" || rel[:5] == "https") {
 		return rel

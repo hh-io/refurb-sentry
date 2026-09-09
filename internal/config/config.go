@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hh-io/refurb-sentry/internal/apple"
@@ -136,18 +137,22 @@ func (c *Config) Validate() (warnings []string, err error) {
 	if len(c.Regions) == 0 {
 		return nil, fmt.Errorf("regions 不能为空,可选:%v", apple.RegionCodes())
 	}
-	for _, r := range c.Regions {
-		if _, e := apple.LookupRegion(r); e != nil {
+	// 归一化后存回,让状态库的键与日志里的地区码始终是规范大写形式。
+	for i, r := range c.Regions {
+		reg, e := apple.LookupRegion(r)
+		if e != nil {
 			return nil, e
 		}
+		c.Regions[i] = reg.Code
 	}
 	if len(c.Categories) == 0 {
 		return nil, fmt.Errorf("categories 不能为空,可选:%v", apple.Categories)
 	}
-	for _, cat := range c.Categories {
+	for i, cat := range c.Categories {
 		if !apple.ValidCategory(cat) {
 			return nil, fmt.Errorf("未知分类 %q,可选:%v", cat, apple.Categories)
 		}
+		c.Categories[i] = strings.ToLower(strings.TrimSpace(cat))
 	}
 
 	for i, ch := range c.Channels {

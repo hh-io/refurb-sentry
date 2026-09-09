@@ -68,6 +68,25 @@ func TestParseSpec(t *testing.T) {
 	}
 }
 
+// 西班牙站的 16 吋 MacBook Pro 标题里既无 Apple 也无 chip,
+// 只靠指示词门禁会漏掉整整一档机型(实测 ES/mac 67 件里有 6 件)。
+func TestParseSpecWithoutChipHint(t *testing.T) {
+	cases := []struct {
+		title string
+		want  Spec
+	}{
+		{"MacBook Pro reacondicionado de 16 pulgadas con M4 Pro, CPU de 14 núcleos y GPU de 20 núcleos - Negro espacial",
+			Spec{"M4 Pro", 14, 20}},
+		{"MacBook Pro reacondicionado de 16 pulgadas con M4 Max, CPU de 16 núcleos y GPU de 40 núcleos - Plata",
+			Spec{"M4 Max", 16, 40}},
+	}
+	for _, c := range cases {
+		if got := ParseSpec(c.title); got != c.want {
+			t.Errorf("ParseSpec(%q)\n  got  %+v\n  want %+v", c.title, got, c.want)
+		}
+	}
+}
+
 // 解耦芯片指示词与型号后,必须确认不会把无关商品误判成有芯片。
 func TestParseSpecNoFalsePositives(t *testing.T) {
 	titles := []string{

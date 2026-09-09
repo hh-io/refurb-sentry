@@ -22,6 +22,10 @@ type Grid struct {
 	// Skipped 记录因价格无法解析而丢弃的条目数,用于日志告警:
 	// 持续非零说明 Apple 改了价格字段格式。
 	Skipped int
+	// CurrencyMismatch 记录页面自报货币与该地区期望货币不符的条目数。
+	// 单独统计而不是看归一化后的 Product.Currency——后者在页面缺字段时
+	// 会被回填成期望值,据此校验会恒真。
+	CurrencyMismatch int
 }
 
 // ParseGrid 从列表页 HTML 中提取商品。
@@ -57,8 +61,11 @@ func ParseGrid(html []byte, region Region, category string) (*Grid, error) {
 			continue
 		}
 		currency := t.Price.PriceCurrency
-		if currency == "" {
+		switch {
+		case currency == "":
 			currency = region.Currency
+		case currency != region.Currency:
+			g.CurrencyMismatch++
 		}
 		g.Products = append(g.Products, Product{
 			Region:     region.Code,
