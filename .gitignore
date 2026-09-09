@@ -1,0 +1,8 @@
+# 运行时状态与本地配置(可能含 device_key 等密钥)
+/data/
+/configs/config.yaml
+.env
+
+# 构建产物
+/refurb-sentry
+/dist/

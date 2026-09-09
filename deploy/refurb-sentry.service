@@ -1,0 +1,40 @@
+# systemd 单元(Linux VPS)
+#   sudo cp deploy/refurb-sentry.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now refurb-sentry
+#   journalctl -u refurb-sentry -f
+[Unit]
+Description=refurb-sentry - Apple 官方翻新产品监控
+Documentation=https://github.com/hh/refurb-sentry
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=refurb
+Group=refurb
+WorkingDirectory=/opt/refurb-sentry
+
+# 密钥走环境变量文件,不进配置文件也不进日志。文件权限建议 0600。
+EnvironmentFile=/etc/refurb-sentry/refurb-sentry.env
+ExecStart=/opt/refurb-sentry/refurb-sentry -config /etc/refurb-sentry/config.yaml
+
+# 进程退出后自动拉起;30 秒间隔避免配置写错时疯狂重启刷日志。
+Restart=always
+RestartSec=30
+
+# SIGTERM 后程序需要落盘状态再退出,给足时间。
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# 状态文件所在目录必须可写
+ReadWritePaths=/opt/refurb-sentry/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd 单元(mac mini 常驻)
+    cp deploy/com.refurb-sentry.plist ~/Library/LaunchAgents/
+    编辑其中的路径与 BARK_KEY 后:
+    launchctl load  ~/Library/LaunchAgents/com.refurb-sentry.plist
+    launchctl unload ~/Library/LaunchAgents/com.refurb-sentry.plist
+    tail -f /usr/local/var/log/refurb-sentry.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.refurb-sentry</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/refurb-sentry</string>
+    <string>-config</string>
+    <string>/usr/local/etc/refurb-sentry/config.yaml</string>
+  </array>
+
+  <!-- 状态文件按配置里的相对路径落在此目录下 -->
+  <key>WorkingDirectory</key>
+  <string>/usr/local/var/refurb-sentry</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BARK_KEY</key>
+    <string>在此填入你的 Bark device key</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- 配置写错时避免疯狂重启 -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/usr/local/var/log/refurb-sentry.log</string>
+  <key>StandardErrorPath</key>
+  <string>/usr/local/var/log/refurb-sentry.log</string>
+</dict>
+</plist>

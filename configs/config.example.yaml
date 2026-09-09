@@ -1,0 +1,86 @@
+# refurb-sentry 配置示例
+# 复制为 config.yaml 后按需修改:cp configs/config.example.yaml configs/config.yaml
+#
+# 所有 ${VAR} 会从环境变量展开;${VAR:-默认值} 可指定回退值。
+# 引用了未设置且没有默认值的变量时程序会直接报错退出,而不是静默推送失败。
+
+# 轮询间隔。翻新列表页的 CDN 缓存为 120 秒(响应头 s-maxage=120),
+# 设得比这更短只会增加请求量,并不会更早看到新品。
+interval: 120s
+
+state_path: data/state.json
+log_level: info
+
+# 监控范围。可选地区:AU CA CN DE HK JP SG UK US
+# 注意各地区提供的分类不同(实测 CN/HK 没有 iphone 与 appletv,请求会返回 404),
+# 首轮启动会校验并明确报错。
+regions:
+  - CN
+categories:
+  - mac
+
+http:
+  # 代理的用途是修正出口地区(Apple 按 IP 判定地区),而非隐藏身份。
+  # 支持 http:// https:// socks5://,留空则沿用 HTTP_PROXY 等环境变量。
+  proxy: ""
+  # 留空使用内置的真实浏览器标识。不要做 UA 轮换——稳定的 UA 更不像自动化流量。
+  user_agent: ""
+  timeout: 20s
+  max_retries: 3
+  # 同一轮内相邻请求之间的随机停顿,避免十几个请求同时发出。
+  delay_min: 1s
+  delay_max: 3s
+
+notify:
+  group: refurb-sentry
+  # 一轮内命中事件超过此数量时合并成一条摘要,避免 Apple 批量上架时刷屏。
+  digest_threshold: 5
+
+channels:
+  - type: bark
+    name: bark
+    enabled: true
+    # 自建服务端可改为自己的地址
+    server: https://api.day.app
+    device_key: ${BARK_KEY}
+    sound: ""
+
+  # 通用 webhook:改 url / headers / body 即可对接 Telegram、飞书、Server 酱等。
+  # 下面是 Telegram 的写法。body 是 text/template 模板,
+  # {{json .X}} 会把值转义成合法的 JSON 字面量。
+  - type: webhook
+    name: telegram
+    enabled: false
+    url: https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage
+    method: POST
+    headers:
+      Content-Type: application/json; charset=utf-8
+    body: |
+      {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}},"disable_web_page_preview":false}
+
+# 过滤规则。留空表示推送所选范围内的全部变动。
+#
+# 匹配语义:规则之间是 OR(命中任意一条即推送);
+# 单条规则内各字段之间是 AND;字段内的多个候选值之间是 OR;留空的字段不作限制。
+#
+# dimensions 的可用键与取值随分类而变,用 -list-dims 查询当前实际值:
+#   go run ./cmd/refurb-sentry -config configs/config.yaml -list-dims
+rules:
+  - name: MacBook Pro 高配
+    regions: [CN]
+    categories: [mac]
+    dimensions:
+      refurbClearModel: [macbookpro]
+      tsMemorySize: [24gb, 32gb, 36gb, 48gb, 64gb, 128gb]
+      dimensionCapacity: [1tb, 2tb, 4tb, 8tb]
+    # 芯片与核心数只能从标题解析,是全项目最易受上游文案调整影响的条件。
+    chips: [M4 Pro, M4 Max, M5 Pro, M5 Max]
+    min_cpu_cores: 12
+    max_price: 20000
+
+  - name: Mac mini 捡漏
+    regions: [CN]
+    categories: [mac]
+    dimensions:
+      refurbClearModel: [macmini]
+    max_price: 6000
