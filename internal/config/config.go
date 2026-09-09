@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hh/refurb-sentry/internal/apple"
-	"github.com/hh/refurb-sentry/internal/filter"
+	"github.com/hh-io/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/filter"
 )
 
 // Duration 让 YAML 里可以直接写 "120s"、"2m" 这类可读时长。

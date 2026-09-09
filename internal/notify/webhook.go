@@ -11,8 +11,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/hh/refurb-sentry/internal/apple"
-	"github.com/hh/refurb-sentry/internal/state"
+	"github.com/hh-io/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/state"
 )
 
 // defaultWebhookBody 是未指定模板时的通用 JSON 载荷。

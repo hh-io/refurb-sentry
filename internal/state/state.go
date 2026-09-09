@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hh/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/apple"
 )
 
 // stateVersion 用于将来变更磁盘格式时做迁移判断。

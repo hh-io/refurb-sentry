@@ -12,12 +12,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/hh/refurb-sentry/internal/app"
-	"github.com/hh/refurb-sentry/internal/apple"
-	"github.com/hh/refurb-sentry/internal/config"
-	"github.com/hh/refurb-sentry/internal/filter"
-	"github.com/hh/refurb-sentry/internal/notify"
-	"github.com/hh/refurb-sentry/internal/state"
+	"github.com/hh-io/refurb-sentry/internal/app"
+	"github.com/hh-io/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/config"
+	"github.com/hh-io/refurb-sentry/internal/filter"
+	"github.com/hh-io/refurb-sentry/internal/notify"
+	"github.com/hh-io/refurb-sentry/internal/state"
 )
 
 // version 由构建时通过 -ldflags "-X main.version=..." 注入。

@@ -20,7 +20,7 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/hh/refurb-sentry && cd refurb-sentry
+git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
 go build -o refurb-sentry ./cmd/refurb-sentry
 
 cp configs/config.example.yaml configs/config.yaml

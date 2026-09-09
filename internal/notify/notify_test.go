@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hh/refurb-sentry/internal/apple"
-	"github.com/hh/refurb-sentry/internal/state"
+	"github.com/hh-io/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/state"
 )
 
 func sampleEvent(kind state.EventKind) state.Event {

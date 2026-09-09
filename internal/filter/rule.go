@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hh/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/apple"
 )
 
 // Rule 是一条过滤规则。各字段之间是 AND;字段内的候选值之间是 OR;

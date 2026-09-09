@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hh/refurb-sentry/internal/apple"
-	"github.com/hh/refurb-sentry/internal/config"
-	"github.com/hh/refurb-sentry/internal/filter"
-	"github.com/hh/refurb-sentry/internal/notify"
-	"github.com/hh/refurb-sentry/internal/state"
+	"github.com/hh-io/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/config"
+	"github.com/hh-io/refurb-sentry/internal/filter"
+	"github.com/hh-io/refurb-sentry/internal/notify"
+	"github.com/hh-io/refurb-sentry/internal/state"
 )
 
 type scope struct {

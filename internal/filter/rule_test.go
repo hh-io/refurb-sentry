@@ -3,7 +3,7 @@ package filter
 import (
 	"testing"
 
-	"github.com/hh/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/apple"
 )
 
 func mbp() apple.Product {

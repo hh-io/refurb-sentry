@@ -4,7 +4,7 @@
 #   journalctl -u refurb-sentry -f
 [Unit]
 Description=refurb-sentry - Apple 官方翻新产品监控
-Documentation=https://github.com/hh/refurb-sentry
+Documentation=https://github.com/hh-io/refurb-sentry
 After=network-online.target
 Wants=network-online.target
 

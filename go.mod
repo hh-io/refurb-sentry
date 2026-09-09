@@ -1,4 +1,4 @@
-module github.com/hh/refurb-sentry
+module github.com/hh-io/refurb-sentry
 
 go 1.26.8
 

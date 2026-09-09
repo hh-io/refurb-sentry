@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hh/refurb-sentry/internal/apple"
+	"github.com/hh-io/refurb-sentry/internal/apple"
 )
 
 func prod(pn string, cents int64) apple.Product {
