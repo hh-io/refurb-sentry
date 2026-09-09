@@ -14,39 +14,60 @@ type Spec struct {
 	GPUCores int
 }
 
-// 标题是全项目唯一的非结构化数据源,各地区文案差异极大(实测):
+// 标题是全项目唯一的非结构化数据源,各语言站点的语序差异极大(均为实测):
 //
 //	US  Refurbished 14-inch MacBook Pro Apple M5 Pro chip with 12-Core CPU and 16-Core GPU
-//	DE  Refurbished 14" MacBook Pro mit Apple M5 Chip, 10‑Core CPU und 10‑Core GPU
+//	NL  Refurbished 13-inch MacBook Air Apple M4-chip met 10-core CPU en 10-core GPU
+//	FR  Mac mini reconditionné avec puce Apple M4, CPU 10 cœurs, GPU 10 cœurs
+//	IT  MacBook Air 13" ricondizionato con chip Apple M2, CPU 8-core e GPU 10-core
+//	ES  iMac reacondicionado de 24 pulgadas con chip M4 de Apple, CPU de 8 núcleos
 //	CN  翻新 Mac mini Apple M4 芯片 (配备 10 核中央处理器和 10 核图形处理器)
 //	HK  翻新產品 14 吋 MacBook Pro Apple M5 晶片 (配備 10 核心 CPU 及 10 核心 GPU)
 //	JP  14インチMacBook Pro [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ
+//	KR  리퍼비쉬 MacBook Pro 14 Apple M5 Pro 칩 모델(15코어 CPU 및 16코어 GPU)
 //
-// 这里刻意不按地区分派正则,而是把所有语言的模式都试一遍:各语言的关键词
-// 互不冲突,全量匹配对新增地区和上游改文案都更宽容。
+// 关键设计:芯片「指示词」与芯片「型号」解耦,不要求二者相邻。
+// 早期版本要求 Apple 与 chip 紧挨着,在法/意/西/荷/韩五个站点识别率为 0——
+// 那些语言里 puce/chip 在型号之前,或用连字符连成 M4-chip。
 var (
-	chipRE = regexp.MustCompile(`Apple\s*([MA]\d+)(?:\s*(Pro|Max|Ultra))?\s*(?:[Cc]hip|芯片|晶片|チップ)`)
+	// chipHintRE 确认标题确实在描述一枚芯片,避免把无关的字母数字组合当成型号。
+	chipHintRE = regexp.MustCompile(`Apple|[Cc]hip|puce|晶片|芯片|チップ|칩`)
+	// chipRE 只认 M/A 系列型号本身,分隔符兼容空格与各式连字符。
+	chipRE = regexp.MustCompile(`\b([MA]\d{1,2})(?:[\s-]+(Pro|Max|Ultra))?\b`)
 
+	// coreUnit 覆盖各语言的「核心」量词。注意「核心」必须排在「核」之前:
+	// Go 的正则交替是最左优先,顺序颠倒会让「核」先匹配而漏掉后面的「心」。
+	coreUnit = `(?:[Cc]ores?|コア|코어|核心|核|c(?:œ|oe)urs?|n[úu]cleos?|nuclei|[Kk]ernen)`
+
+	// 两种语序都要认:数字在量词之前(英/中/日/韩/荷),或在处理器名之后(法/意/西)。
 	cpuREs = []*regexp.Regexp{
-		regexp.MustCompile(`(\d+)[-\s]?Core\s*CPU`), // en / de
-		regexp.MustCompile(`(\d+)\s*核中央处理器`),        // zh-Hans
-		regexp.MustCompile(`(\d+)\s*核心\s*CPU`),      // zh-Hant
-		regexp.MustCompile(`(\d+)\s*コア\s*CPU`),      // ja
+		regexp.MustCompile(`(\d+)\s*-?\s*` + coreUnit + `[\s-]*(?:CPU|中央处理器|中央處理器)`),
+		regexp.MustCompile(`CPU\s*(?:de\s*|van\s*)?(\d+)\s*-?\s*` + coreUnit),
 	}
 	gpuREs = []*regexp.Regexp{
-		regexp.MustCompile(`(\d+)[-\s]?Core\s*GPU`),
-		regexp.MustCompile(`(\d+)\s*核图形处理器`),
-		regexp.MustCompile(`(\d+)\s*核心\s*GPU`),
-		regexp.MustCompile(`(\d+)\s*コア\s*GPU`),
+		regexp.MustCompile(`(\d+)\s*-?\s*` + coreUnit + `[\s-]*(?:GPU|图形处理器|圖形處理器)`),
+		regexp.MustCompile(`GPU\s*(?:de\s*|van\s*)?(\d+)\s*-?\s*` + coreUnit),
 	}
 )
 
-// dashNormalizer 把各站点混用的 Unicode 连字符与不换行空格折成 ASCII。
-// 实测德国站用 U+2011(非断行连字符)、澳洲站用 U+2014,朴素正则会因此漏匹配。
+// dashNormalizer 把各站点混用的 Unicode 连字符与空格折成 ASCII。
+//
+// 一律使用 \u 转义而非字面字符:这些码位在编辑器、终端和补丁传输中极易被
+// 悄悄替换成普通 ASCII,使替换规则退化成「空格换空格」而静默失效。
+// 实测踩过一次——U+00A0 被写成 U+0020,导致西/意/法站的 "A18\u00a0Pro"
+// 被截成 "A18",配了 chips: [M4 Pro] 的规则会莫名漏推。
 var dashNormalizer = strings.NewReplacer(
-	"‐", "-", "‑", "-", "‒", "-", "–", "-",
-	"—", "-", "―", "-", "−", "-",
-	" ", " ", "　", " ",
+	"\u2010", "-", // 连字符
+	"\u2011", "-", // 非断行连字符(德国站)
+	"\u2012", "-", // 数字连字符
+	"\u2013", "-", // en dash
+	"\u2014", "-", // em dash(澳洲站)
+	"\u2015", "-", // horizontal bar
+	"\u2212", "-", // 减号
+	"\u00a0", " ", // 不间断空格(西/意/法站用它分隔芯片型号与 Pro/Max)
+	"\u202f", " ", // 窄不间断空格
+	"\u2009", " ", // thin space
+	"\u3000", " ", // 全角空格
 )
 
 // NormalizeTitle 供解析与正则规则共用,保证用户写的 title_match 面对的是同一套字符。
@@ -60,10 +81,12 @@ func ParseSpec(title string) Spec {
 	t := NormalizeTitle(title)
 	var s Spec
 
-	if m := chipRE.FindStringSubmatch(t); m != nil {
-		s.Chip = m[1]
-		if m[2] != "" {
-			s.Chip += " " + m[2]
+	if chipHintRE.MatchString(t) {
+		if m := chipRE.FindStringSubmatch(t); m != nil {
+			s.Chip = m[1]
+			if m[2] != "" {
+				s.Chip += " " + m[2]
+			}
 		}
 	}
 	s.CPUCores = firstInt(t, cpuREs)

@@ -84,9 +84,11 @@ func FormatPrice(cents int64, currency string) string {
 		amount = fmt.Sprintf("%s.%02d", amount, frac)
 	}
 
+	// 符号沿用各地区 Apple 站点自身的展示习惯。
 	sym := map[string]string{
 		"CNY": "RMB ", "USD": "$", "HKD": "HK$", "JPY": "¥",
 		"GBP": "£", "EUR": "€", "SGD": "S$", "CAD": "CA$", "AUD": "A$",
+		"NZD": "NZ$", "TWD": "NT$", "KRW": "₩", "CHF": "CHF ",
 	}[currency]
 	if sym == "" {
 		sym = currency + " "

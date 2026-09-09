@@ -24,6 +24,16 @@ var regions = map[string]Region{
 	"SG": {Code: "SG", BaseURL: "https://www.apple.com/sg", AcceptLanguage: "en-SG,en;q=0.9", Currency: "SGD"},
 	"CA": {Code: "CA", BaseURL: "https://www.apple.com/ca", AcceptLanguage: "en-CA,en;q=0.9", Currency: "CAD"},
 	"AU": {Code: "AU", BaseURL: "https://www.apple.com/au", AcceptLanguage: "en-AU,en;q=0.9", Currency: "AUD"},
+	"IE": {Code: "IE", BaseURL: "https://www.apple.com/ie", AcceptLanguage: "en-IE,en;q=0.9", Currency: "EUR"},
+	"NZ": {Code: "NZ", BaseURL: "https://www.apple.com/nz", AcceptLanguage: "en-NZ,en;q=0.9", Currency: "NZD"},
+	"FR": {Code: "FR", BaseURL: "https://www.apple.com/fr", AcceptLanguage: "fr-FR,fr;q=0.9", Currency: "EUR"},
+	"BE": {Code: "BE", BaseURL: "https://www.apple.com/be-fr", AcceptLanguage: "fr-BE,fr;q=0.9", Currency: "EUR"},
+	"IT": {Code: "IT", BaseURL: "https://www.apple.com/it", AcceptLanguage: "it-IT,it;q=0.9", Currency: "EUR"},
+	"ES": {Code: "ES", BaseURL: "https://www.apple.com/es", AcceptLanguage: "es-ES,es;q=0.9", Currency: "EUR"},
+	"NL": {Code: "NL", BaseURL: "https://www.apple.com/nl", AcceptLanguage: "nl-NL,nl;q=0.9", Currency: "EUR"},
+	"CH": {Code: "CH", BaseURL: "https://www.apple.com/ch-de", AcceptLanguage: "de-CH,de;q=0.9", Currency: "CHF"},
+	"KR": {Code: "KR", BaseURL: "https://www.apple.com/kr", AcceptLanguage: "ko-KR,ko;q=0.9", Currency: "KRW"},
+	"TW": {Code: "TW", BaseURL: "https://www.apple.com/tw", AcceptLanguage: "zh-TW,zh;q=0.9", Currency: "TWD"},
 }
 
 // Categories 是翻新店的全部分类。并非每个地区都提供全部分类

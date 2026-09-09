@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/hh/refurb-sentry/internal/apple"
@@ -259,12 +260,11 @@ func (r *Runner) ListDimensions(ctx context.Context, out func(string)) error {
 			}
 		}
 		for _, lg := range grid.Legends {
-			vs := sortedKeys(values[lg.Key])
-			out(fmt.Sprintf("  %-24s %-10s %v", lg.Key, "("+lg.Legend+")", vs))
+			out(formatDimension(lg.Key, lg.Legend, sortedKeys(values[lg.Key])))
 			delete(values, lg.Key)
 		}
 		for _, k := range sortedKeys(values) {
-			out(fmt.Sprintf("  %-24s %-10s %v", k, "", sortedKeys(values[k])))
+			out(formatDimension(k, "", sortedKeys(values[k])))
 		}
 
 		chips := map[string]bool{}
@@ -274,10 +274,20 @@ func (r *Runner) ListDimensions(ctx context.Context, out func(string)) error {
 			}
 		}
 		if len(chips) > 0 {
-			out(fmt.Sprintf("  %-24s %-10s %v", "chips", "(芯片)", sortedKeys(chips)))
+			out(formatDimension("chips", "芯片", sortedKeys(chips)))
 		}
 	}
 	return nil
+}
+
+// formatDimension 用逗号分隔取值。取值本身可能含空格(如芯片名 "M4 Max"),
+// 直接用 %v 打印切片会让人分不清那是一个值还是两个。
+func formatDimension(key, legend string, values []string) string {
+	label := ""
+	if legend != "" {
+		label = "(" + legend + ")"
+	}
+	return fmt.Sprintf("  %-22s %-10s %s", key, label, strings.Join(values, ", "))
 }
 
 func sortedKeys[V any](m map[string]V) []string {

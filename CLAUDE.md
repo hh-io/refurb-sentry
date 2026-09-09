@@ -12,9 +12,18 @@
 - `filters.dimensions` 的 key 集合**随分类而变**(mac 有 `tsMemorySize`/`dimensionCapacity`,
   watch 是 `dimensionCaseSize`/`dimensionCaseMaterial`/`dimensionConnection`)。
   因此它是 `map[string]string`,规则匹配也必须是通用 key-value,不能定义成固定字段。
-- **芯片型号与 CPU/GPU 核心数不在 dimensions 里,只在 `title` 字符串**,且各地区文案完全不同
-  (CN「芯片/核中央处理器」、HK「晶片/核心 CPU」、JP「チップ/コアCPU」、DE 用 U+2011 连字符)。
+- **芯片型号与 CPU/GPU 核心数不在 dimensions 里,只在 `title` 字符串**,且各语言语序完全不同:
+  FR「puce Apple M4, CPU 10 cœurs」型号在指示词之后、数字在量词之前;
+  IT/ES「chip Apple M2, CPU 8-core」;NL「Apple M4-chip」用连字符连写;
+  KR「Apple M5 Pro 칩(15코어 CPU)」;CN「芯片/核中央处理器」;HK/TW「晶片/核心 CPU」;JP「チップ/コアCPU」。
+  因此正则**把芯片指示词与型号解耦**、并同时认两种语序,不按地区分派。
   这是全项目唯一的脆弱解析点,见 `internal/filter/chip.go`。
+- **标题里混用多种 Unicode 分隔符**,同一页面内都不统一:西/意/法站用 U+00A0 分隔
+  "M4\u00a0Pro" 而同页其它机型用普通空格;德国站用 U+2011;澳洲站用 U+2014。
+  `dashNormalizer` 里的码位**必须写成 `\u` 转义**,绝不能写字面字符——
+  曾因 U+00A0 在编辑过程中退化成 U+0020,替换规则变成「空格换空格」而静默失效,
+  导致西/意/法站的 "A18 Pro" 全被截成 "A18",配了 `chips: [M4 Pro]` 的规则莫名漏推。
+  `TestNormalizeTitleCoversCodepoints` 与 `TestParseSpecNormalizesSeparators` 专门防这个回归。
 - 数据源**没有库存数量**。事件只能是上架/降价/下架。
 - 地区×分类矩阵是稀疏的:CN/HK 的 iphone、appletv 返回 **404**;
   US 的 appletv/airpods/homepod 返回 200 但无 bootstrap。这三种情况必须分开处理。
@@ -45,3 +54,5 @@ go test ./... && go vet ./... && gofmt -l .
 ```
 
 新增地区:在 `internal/apple/regions.go` 的表里加一行即可,启动校验会验证可用性。
+新货币记得同时在 `internal/apple/model.go` 的符号表里补一项,否则会退化成 "XXX 999" 的展示。
+实测 MX、IN 没有翻新店(返回 404),不要加。

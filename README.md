@@ -7,7 +7,7 @@
 ## 它做什么
 
 - **三类事件**:新商品上架、价格下降、商品下架
-- **多地区**:AU / CA / CN / DE / HK / JP / SG / UK / US
+- **多地区**:AU / BE / CA / CH / CN / DE / ES / FR / HK / IE / IT / JP / KR / NL / NZ / SG / TW / UK / US(共 19 个)
 - **规格过滤**:机型、内存、存储、尺寸、年份、颜色、芯片、CPU/GPU 核心数、价格区间
 - **推送渠道**:Bark、通用 webhook(可对接 Telegram、飞书、Server 酱、Discord)
 
@@ -90,16 +90,28 @@ rules:
 ### 芯片与核心数是唯一的脆弱项
 
 机型、内存、容量等来自页面的结构化字段,稳定可靠。
-但**芯片型号和 CPU/GPU 核心数只存在于商品标题字符串里**,各地区文案还完全不同:
+但**芯片型号和 CPU/GPU 核心数只存在于商品标题字符串里**,而各语言站点的语序完全不同:
 
 ```
 US  Refurbished 14-inch MacBook Pro Apple M5 Pro chip with 12-Core CPU and 16-Core GPU
+NL  Refurbished 13-inch MacBook Air Apple M4-chip met 10-core CPU en 10-core GPU
+FR  Mac mini reconditionné avec puce Apple M4, CPU 10 cœurs, GPU 10 cœurs
+ES  iMac reacondicionado de 24 pulgadas con chip M4 de Apple, CPU de 8 núcleos
 CN  翻新 Mac mini Apple M4 芯片 (配备 10 核中央处理器和 10 核图形处理器)
 HK  翻新產品 14 吋 MacBook Pro Apple M5 晶片 (配備 10 核心 CPU 及 10 核心 GPU)
 JP  14インチMacBook Pro [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ
+KR  리퍼비쉬 MacBook Pro 14 Apple M5 Pro 칩 모델(15코어 CPU 및 16코어 GPU)
 ```
 
-Apple 调整文案时这里可能失配。解析失败时商品会被保留(芯片记为未知),
+解析器不按地区分派正则,而是把芯片「指示词」与「型号」解耦、并同时认两种语序,
+所以新增地区通常不需要改解析代码。当前在 19 个地区 2000+ 件真实商品上的识别率:
+**芯片 100%,核心数 95%**(剩余 5% 是标题本身就没写核心数的机型)。
+
+Apple 还会在同一个页面里混用普通空格与不间断空格(U+00A0)、以及多种 Unicode 连字符,
+标题在归一化后才做匹配。你写的 `title_match` 正则也作用于归一化后的文本,
+所以直接写 ASCII 连字符即可。
+
+即便如此,Apple 调整文案时这里仍可能失配。解析失败时商品会被保留(芯片记为未知),
 但用了 `chips` / `min_cpu_cores` / `min_gpu_cores` 的规则会漏掉它。
 如果发现漏推,先用 `-list-dims` 看看 `chips` 一行是否还正常。
 
@@ -198,6 +210,17 @@ gofmt -l .
 ```
 
 新增地区只需在 `internal/apple/regions.go` 的表里加一行,启动校验会验证其可用性。
+
+## 免责声明
+
+本项目与 Apple Inc. 无任何隶属、赞助或背书关系,也非 Apple 官方产品。
+Apple、MacBook、iPad、Apple Watch 等为 Apple Inc. 的商标。
+
+本工具仅抓取 Apple 官网**公开的**翻新产品列表页,用于个人购买决策的辅助监控;
+所抓取的商品信息(标题、价格、图片链接等)版权归 Apple Inc. 所有。
+请遵守你所在地区的法律法规与 Apple 网站的使用条款,自行承担使用风险。
+
+本项目**不提供也不接受**任何自动下单、抢购、批量购买相关的功能请求。
 
 ## License
 
