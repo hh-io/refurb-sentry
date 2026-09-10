@@ -137,8 +137,8 @@ export BARK_KEY=your_bark_device_key
 ```text
 降价 · CN mac
 翻新 14 英寸 MacBook Pro Apple M4 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器)
-RMB 14,999 → RMB 13,499 (降 RMB 1,500, 10.0%)
-命中规则: MacBook Pro 高配
+RMB 14,999 → RMB 13,499（降 RMB 1,500，10.0%）
+命中规则：MacBook Pro 高配
 https://www.apple.com.cn/shop/product/...
 ```
 
