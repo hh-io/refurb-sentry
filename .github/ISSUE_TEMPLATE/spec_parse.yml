@@ -1,0 +1,73 @@
+name: 规格解析异常 / Spec parsing issue
+description: 芯片型号或 CPU/GPU 核心数没被正确识别 / A chip model or core count was parsed wrong
+title: "[spec] "
+labels: ["spec-parse"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        芯片型号与核心数不在页面的结构化数据里,只能从商品标题解析,
+        是本项目唯一的脆弱点。Apple 调整文案或新增机型都可能让它失手,欢迎反馈。
+
+        Chip models and core counts aren't in the page's structured data — they can
+        only be parsed out of the product title, which is the one fragile part of
+        this project. New wording from Apple can break it.
+
+  - type: input
+    id: url
+    attributes:
+      label: 商品链接 / Product URL
+      description: |
+        **必填,而且比标题原文更重要。** 标题里混着 U+00A0、U+2011 这类不可见分隔符,
+        粘贴进 issue 时常被悄悄换成普通空格,原文就失真了——有链接才能抓到真正的字节。
+
+        Required, and more useful than the pasted title: titles mix in invisible
+        separators like U+00A0 which get silently normalised when pasted.
+      placeholder: https://www.apple.com.cn/shop/product/FHFA4CH/A
+    validations:
+      required: true
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: 地区 / Region
+      options: [AU, BE, CA, CH, CN, DE, ES, FR, HK, IE, IT, JP, KR, NL, NZ, SG, TW, UK, US]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 分类 / Category
+      options: [mac, ipad, iphone, watch, airpods, appletv, homepod, accessories]
+    validations:
+      required: true
+
+  - type: textarea
+    id: title
+    attributes:
+      label: 标题原文 / Product title
+      description: 直接复制页面上的标题,不必手工修正 / Paste it as-is, don't clean it up
+    validations:
+      required: true
+
+  - type: input
+    id: expected
+    attributes:
+      label: 应该解析成什么 / Expected
+      placeholder: "chip: M5 Pro, CPU: 14, GPU: 20"
+    validations:
+      required: true
+
+  - type: input
+    id: actual
+    attributes:
+      label: 实际解析成了什么 / Actual
+      description: 不清楚具体解析结果的话,写「配了规则但没推送」也行 / "my rule just never matched" is a fine answer
+
+  - type: textarea
+    id: rule
+    attributes:
+      label: 相关的规则片段 / The rule involved
+      description: 只贴 rules 里那一条,不要带 device_key / token / Just that one rule — no keys or tokens
+      render: yaml

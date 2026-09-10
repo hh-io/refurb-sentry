@@ -1,0 +1,66 @@
+name: Bug 报告 / Bug report
+description: 程序行为与文档不符 / Something doesn't work as documented
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: "`refurb-sentry -version` 的输出 / Output of `refurb-sentry -version`"
+      placeholder: refurb-sentry v1.2.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式 / Installed via
+      options:
+        - Release 归档 / Release archive
+        - Docker (ghcr.io)
+        - go install
+        - 源码构建 / Built from source
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么 / What happened
+      description: 期望的行为,以及实际的行为 / Expected behaviour, then what actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: |
+        最有用的是一份能用 `-once -dry-run` 复现的最小配置。
+        A minimal config that reproduces it under `-once -dry-run` helps most.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 日志本来就是中文的,直接贴原文,不用翻译 / Logs are Chinese by design — paste as-is
+      render: shell
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 配置 / Config
+      description: |
+        **贴之前先抹掉 device_key、token,以及 webhook URL 里嵌的密钥。**
+        Redact device keys, tokens, and any secret embedded in a webhook URL first.
+      render: yaml
+
+  - type: checkboxes
+    id: notgoals
+    attributes:
+      label: 确认 / Check
+      options:
+        - label: 这不是 README「它不做什么 / What it does not do」里写明不支持的行为(库存数量、价格历史、自动下单等) / Not one of the documented non-goals (stock quantity, price history, auto-checkout…)
+          required: true

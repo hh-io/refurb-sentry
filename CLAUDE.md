@@ -97,6 +97,7 @@ Docker 会按镜像里 `/app/data` 的属主初始化命名卷,用户不必 chow
 规格为原始 1024x1024 PNG。`assets/make-icon.py` 为此前纯代码生成的自制图标脚本,保留供参考。
 
 新增地区:在 `internal/apple/regions.go` 的表里加一行即可,启动校验会验证可用性。
+同时要同步 `.github/ISSUE_TEMPLATE/spec_parse.yml` 的地区下拉——那是个手抄的清单,漏了不会报错,只会让新地区的用户提不了规格解析 issue。
 新货币记得同时在 `internal/apple/model.go` 的符号表里补一项,否则会退化成 "XXX 999" 的展示。
 实测 MX、IN 没有翻新店(返回 404),不要加。
 
