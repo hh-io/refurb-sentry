@@ -21,6 +21,15 @@ services:
       # 用不到 bark 就删掉这行,换成你实际启用的渠道所需的变量。
       BARK_KEY: ${BARK_KEY:?配置里引用了 BARK_KEY,请在 deploy/.env 中设置}
 
+    # Docker 默认的 json-file 驱动**不限大小**,常驻进程的日志会一直涨到塞满磁盘。
+    # 稳态每轮至少一行(默认 2 分钟一轮),一年约 50MB;网络抖动时每轮还会多几行 WARN,
+    # log_level 调成 debug 更是成倍。限制成 3 个 10MB 文件,总量封顶 30MB。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     volumes:
       # 配置只读挂载,改完 docker compose restart 生效
       - ../configs/config.yaml:/app/configs/config.yaml:ro

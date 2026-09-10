@@ -38,6 +38,15 @@
   <key>ThrottleInterval</key>
   <integer>30</integer>
 
+  <!--
+    launchd 不会轮转这个文件,它会一直增长。稳态每轮至少一行(默认 2 分钟一轮),
+    一年约 25MB。交给 macOS 自带的 newsyslog 管理:
+      sudo tee /etc/newsyslog.d/refurb-sentry.conf <<'EOF'
+      # logfilename                       [owner:group]  mode count size when  flags
+      /usr/local/var/log/refurb-sentry.log                644  3     10240 *     J
+      EOF
+    ——保留 3 份、单份超过 10MB 就轮转并用 bzip2 压缩。
+  -->
   <key>StandardOutPath</key>
   <string>/usr/local/var/log/refurb-sentry.log</string>
   <key>StandardErrorPath</key>

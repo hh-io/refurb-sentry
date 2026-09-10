@@ -498,6 +498,26 @@ docker compose -f deploy/docker-compose.yml run --rm refurb-sentry -once -dry-ru
 
 进程崩溃均会自动按 30 秒退避重启；收到 `SIGTERM` 信号时会自动将内存状态完整落盘后优雅退出。
 
+### 长期运行的磁盘占用
+
+程序本身不写任何日志文件，只往 stdout 输出，交给各自的守护方式收集。稳态下每个轮询周期
+至少一行日志（默认 2 分钟一轮），一年约 25MB；网络抖动时每轮还会多几行 WARN，
+`log_level: debug` 更是成倍。**各种收集方式的轮转策略并不一致**，长期运行前值得确认：
+
+| 部署方式 | 日志去向 | 轮转 |
+|---|---|---|
+| Docker Compose | Docker json-file 驱动 | 仓库的 compose 已限制为 3 × 10MB，总量封顶 30MB |
+| systemd | journald | 由系统的 `journald.conf`（`SystemMaxUse` 等）统一管理，无需单独配置 |
+| launchd (macOS) | `/usr/local/var/log/refurb-sentry.log` | **launchd 不做轮转**，需自行交给 `newsyslog`，配置示例见 plist 内注释 |
+
+> [!IMPORTANT]
+> Docker 默认的 json-file 驱动**不限大小**，会一直增长到塞满磁盘。仓库的
+> `deploy/docker-compose.yml` 已经配好 `logging` 限制；若你是自己写的 compose 文件
+> 或用 `docker run` 直接起的，务必自行加上 `--log-opt max-size=10m --log-opt max-file=3`。
+
+状态文件不会无限增长：它只记录**当前在售**的商品，下架的条目会随之删除，
+因此大小随在架商品数波动而非随时间累积（CN 全分类实测约 200KB）。
+
 <details>
 <summary>为什么不推荐 GitHub Actions 或 Cloudflare Workers？</summary>
 

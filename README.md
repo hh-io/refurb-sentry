@@ -527,6 +527,30 @@ Pre-configured service definitions are provided in `deploy/`:
 
 Services automatically restart with a 30s backoff on crash and flush state cleanly on `SIGTERM`.
 
+### Disk usage over long runs
+
+The program writes no log files of its own — everything goes to stdout for the
+supervisor to collect. In steady state that is at least one line per polling round
+(every 2 minutes by default), roughly 25MB a year; network hiccups add WARN lines, and
+`log_level: debug` multiplies it. **Rotation differs by supervisor**, so it is worth
+checking before leaving this running for months:
+
+| Deployment | Where logs go | Rotation |
+|---|---|---|
+| Docker Compose | Docker json-file driver | The repo's compose caps it at 3 × 10MB (30MB total) |
+| systemd | journald | Handled system-wide by `journald.conf` (`SystemMaxUse` etc.); nothing to configure |
+| launchd (macOS) | `/usr/local/var/log/refurb-sentry.log` | **launchd does not rotate** — hand it to `newsyslog`; see the comment inside the plist |
+
+> [!IMPORTANT]
+> Docker's default json-file driver is **unbounded** and will grow until the disk fills.
+> `deploy/docker-compose.yml` already sets a `logging` limit; if you wrote your own
+> compose file or use `docker run` directly, add
+> `--log-opt max-size=10m --log-opt max-file=3` yourself.
+
+The state file does not grow without bound: it records only products **currently in
+stock**, dropping entries as they are delisted, so its size tracks the catalogue rather
+than accumulating over time (about 200KB measured across all CN categories).
+
 <details>
 <summary>Why not GitHub Actions or Cloudflare Workers?</summary>
 
