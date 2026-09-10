@@ -39,7 +39,20 @@ type Runner struct {
 	scopes []scope
 	log    *slog.Logger
 	dryRun bool
+
+	// rollbacks 是连续回滚的轮数,用于在推送永久性失败时放弃重试。见 maxRollbacks。
+	rollbacks int
 }
+
+// maxRollbacks 是同一批变动最多连续回滚多少轮。
+//
+// 回滚本身假设失败是暂时的(渠道宕机),但有些失败重试多少次都不会好:
+// 正文超出 Telegram 的 4096 字上限、webhook 对某个载荷恒返 400。
+// 此时若无限回滚,每一轮都会把同批事件里能送达的那几条再推一遍——
+// 用户每个 interval 收一次重复通知,基线永不推进,新商品也跟着一起卡住。
+// 攒够这么多轮后强制推进并把丢失的事件记进 ERROR 日志:
+// 丢一批通知是坏结果,无限刷屏是更坏的结果。
+const maxRollbacks = 5
 
 type Options struct {
 	Config   *config.Config
@@ -195,12 +208,23 @@ func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) e
 	}
 
 	if !r.dispatch(ctx, events) {
+		r.rollbacks++
+		if r.rollbacks > maxRollbacks {
+			// 连续回滚这么多轮,失败几乎不可能是暂时的。强制推进,
+			// 否则会无限重推同一批事件。丢掉的通知记进日志,让运维查得到。
+			r.log.Error("连续多轮未能送达,判定为永久性失败,放弃这批通知并推进基线",
+				"rounds", r.rollbacks, "dropped", len(events))
+			r.rollbacks = 0
+			return r.save()
+		}
 		// 有事件一条渠道都没送出去(例如 Bark 宕机)。回滚到本轮开始前的基线,
 		// 让这批变动下一轮重新产生并重试推送,而不是被永久吞掉。
 		r.st.Restore(snapshot)
-		r.log.Error("本轮存在未送达的通知,已回滚基线,下一轮将重试")
+		r.log.Error("本轮存在未送达的通知,已回滚基线,下一轮将重试",
+			"rounds", r.rollbacks, "max", maxRollbacks)
 		return nil
 	}
+	r.rollbacks = 0
 	return r.save()
 }
 

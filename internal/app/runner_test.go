@@ -157,10 +157,10 @@ func TestFailedDispatchSkipsSave(t *testing.T) {
 	}), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.Load(r.cfg.StatePath); err != nil {
+	loaded, err := state.Load(r.cfg.StatePath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, _ := state.Load(r.cfg.StatePath)
 	if len(loaded.Items) != 0 {
 		t.Fatalf("推送全败时不应落盘,实际写出了 %d 条记录", len(loaded.Items))
 	}
@@ -177,5 +177,59 @@ func TestEmptyScopeDoesNotClaimBaseline(t *testing.T) {
 	}
 	if st.IsBootstrapped("CN", "mac") {
 		t.Fatal("空列表首轮不应建立基线")
+	}
+}
+
+// 推送若是永久性失败(正文超长、webhook 恒返 400),无限回滚会让每一轮
+// 都把同批事件里能送达的那几条再推一遍。攒够 maxRollbacks 轮必须放弃并推进。
+func TestPermanentFailureStopsRollingBack(t *testing.T) {
+	st := state.New()
+	st.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, time.Now())
+
+	r := newTestRunner(t, &stubNotifier{failFrom: 1}, st)
+	products := []apple.Product{prod("A/A", 100000), prod("B/A", 200000)}
+
+	for i := 1; i <= maxRollbacks; i++ {
+		if err := r.settle(context.Background(), cnMac(t, products), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := st.Items["CN/mac/B/A"]; ok {
+			t.Fatalf("第 %d 轮仍在重试窗口内,不应推进基线", i)
+		}
+	}
+
+	// 超过上限的这一轮放弃重试,强制推进。
+	if err := r.settle(context.Background(), cnMac(t, products), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Items["CN/mac/B/A"]; !ok {
+		t.Fatalf("连续 %d 轮失败后应放弃并推进基线,否则会无限重推", maxRollbacks)
+	}
+}
+
+// 中途一次成功必须清零计数,否则零星的渠道抖动会攒够上限、误伤后面的真实重试。
+func TestSuccessResetsRollbackCounter(t *testing.T) {
+	st := state.New()
+	st.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, time.Now())
+
+	failing := &stubNotifier{failFrom: 1}
+	r := newTestRunner(t, failing, st)
+	if err := r.settle(context.Background(), cnMac(t, []apple.Product{
+		prod("A/A", 100000), prod("B/A", 200000),
+	}), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if r.rollbacks != 1 {
+		t.Fatalf("失败一轮后计数应为 1,实际 %d", r.rollbacks)
+	}
+
+	r.notif = notify.NewMulti([]notify.Notifier{&stubNotifier{}}, r.log)
+	if err := r.settle(context.Background(), cnMac(t, []apple.Product{
+		prod("A/A", 100000), prod("B/A", 200000),
+	}), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if r.rollbacks != 0 {
+		t.Fatalf("推送成功后计数应清零,实际 %d", r.rollbacks)
 	}
 }

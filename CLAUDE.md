@@ -49,7 +49,12 @@
    失败时 `Restore` 原地覆盖(不能换指针,`main` 还持有同一个 `*State`)。
    逐条推送时只要有一条全败就算整轮失败:回滚是整轮粒度的,已送达的那几条
    下一轮会重复推送一次——**重复优于永久丢失**。
-   `TestFailedDispatchRollsBackBaseline` 与 `TestPartialDeliveryIsNotSuccess` 防这个回归。
+   但回滚必须有上限(`maxRollbacks`):正文超长、webhook 恒返 400 这类失败重试多少次
+   都不会好,无限回滚会让用户每个 interval 收一次重复通知且基线永不推进。
+   攒够轮数后强制推进并把丢失的事件记进 ERROR 日志——丢一批通知是坏结果,
+   无限刷屏是更坏的结果。
+   `TestFailedDispatchRollsBackBaseline`、`TestPartialDeliveryIsNotSuccess`
+   与 `TestPermanentFailureStopsRollingBack` 防这个回归。
 
 ## 设计取舍
 

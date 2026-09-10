@@ -36,7 +36,7 @@ your phone:
 Refurb watch · 6 listings / 2 price drops
 [Listed] US Refurbished Mac mini Apple M4 chip $499
 [Price drop] US Refurbished 14-inch MacBook Pro $1,999 → $1,799
-……
+...
 ```
 
 ## What it does
@@ -357,9 +357,13 @@ Three deliberate design choices, all aimed at never losing or spamming notificat
   The in-memory baseline is snapshotted before the diff and restored on failure, so
   a long-running process genuinely retries instead of merely skipping the disk write.
   Because the rollback is round-wide, changes that *were* delivered in that round are
-  sent once more on the retry — a duplicate notification beats a lost one. A change
-  that reached at least one channel counts as delivered; the channels that failed
-  lose that batch, and it's logged at ERROR.
+  sent once more on the retry — a duplicate notification beats a lost one. Retrying is
+  capped: some failures never recover (a body past Telegram's length limit, a webhook
+  that always returns 400), and retrying those forever would re-push the same batch
+  every interval while the baseline never advances. After several consecutive
+  rollbacks the round is forced through and the lost events are logged at ERROR.
+  A change that reached at least one channel counts as delivered; the channels that
+  failed lose that batch, and it's logged at ERROR.
 
 ## Development
 

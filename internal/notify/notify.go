@@ -79,8 +79,6 @@ func NewMulti(ns []Notifier, log *slog.Logger) *Multi {
 	return &Multi{notifiers: ns, log: log}
 }
 
-func (m *Multi) Len() int { return len(m.notifiers) }
-
 func (m *Multi) Names() []string {
 	out := make([]string, 0, len(m.notifiers))
 	for _, n := range m.notifiers {

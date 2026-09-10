@@ -19,14 +19,19 @@ const (
 // DefaultLang 保持中文,以免升级后老用户手机上的推送突然换成英文。
 const DefaultLang = LangZH
 
-// ParseLang 校验语言代码。未知取值直接报错而不是回退默认值——
+// ParseLang 校验语言代码并归一化成规范形式。未知取值直接报错而不是回退默认值——
 // 拼错的 lang 若静默失效,用户会以为设置已经生效。
+//
+// 大小写不敏感,与配置里的 regions/categories 保持一致:
+// 写 "EN" 或 "zh-cn" 都该能用,没有理由让 lang 单独挑剔。
 func ParseLang(s string) (Lang, error) {
-	switch l := Lang(strings.TrimSpace(s)); l {
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "":
 		return DefaultLang, nil
-	case LangZH, LangEN:
-		return l, nil
+	case strings.ToLower(string(LangZH)):
+		return LangZH, nil
+	case strings.ToLower(string(LangEN)):
+		return LangEN, nil
 	default:
 		return "", fmt.Errorf("未知的通知语言 %q,可选:%s、%s", s, LangZH, LangEN)
 	}
@@ -93,7 +98,7 @@ var langPhrases = map[Lang]phrases{
 		digestTitle:   "Refurb watch · %s",
 		digestCount:   "%[2]d %[1]s",
 		digestLine:    "[%s] %s %s",
-		digestMore:    "…… and %d more",
+		digestMore:    "... and %d more",
 		consoleHeader: "\n──────── notification ────────\nTitle: %s\n%s\nURL: %s\nGroup: %s\n",
 	},
 }

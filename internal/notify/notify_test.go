@@ -191,6 +191,25 @@ func TestMultiReportsTotalFailure(t *testing.T) {
 }
 
 // 英文文案不能只换词不换标点:全角括号与顿号混进英文里会很别扭。
+// 英文摘要正文此前不在标点检查范围内,digestMore 的中文省略号因此漏了很久。
+func TestEnglishDigestUsesASCIIPunctuation(t *testing.T) {
+	evs := make([]state.Event, 20)
+	for i := range evs {
+		evs[i] = sampleEvent(state.EventListed)
+	}
+	body := enRenderer().Digest(evs).Body
+
+	// 全角标点写成 \u 转义,理由同 TestRenderEnglishUsesASCIIPunctuation。
+	for _, bad := range []string{"\u2026", "\uff08", "\uff09", "\uff0c", "\u3001"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("英文摘要残留全角标点 %q:\n%s", bad, body)
+		}
+	}
+	if !strings.Contains(body, "... and 8 more") {
+		t.Errorf("英文摘要的省略行应使用半角:\n%s", body)
+	}
+}
+
 func TestRenderEnglishUsesASCIIPunctuation(t *testing.T) {
 	ev := sampleEvent(state.EventPriceDrop)
 	ev.Rules = []string{"MBP high-end", "cheap mini"}
@@ -321,6 +340,18 @@ func TestParseLangRejectsUnknown(t *testing.T) {
 	if l, _ := ParseLang(" en "); l != LangEN {
 		t.Errorf("应容忍首尾空白,实际 %q", l)
 	}
+	// 配置里的 regions/categories 都是大小写不敏感的,lang 没理由单独挑剔;
+	// 且 Validate 会把返回值存回配置,必须是规范形式而不是用户的原始拼写。
+	for _, in := range []string{"EN", "En"} {
+		if l, err := ParseLang(in); err != nil || l != LangEN {
+			t.Errorf("ParseLang(%q) 应归一化为 %q,实际 %q err=%v", in, LangEN, l, err)
+		}
+	}
+	for _, in := range []string{"zh-cn", "ZH-CN", "Zh-CN"} {
+		if l, err := ParseLang(in); err != nil || l != LangZH {
+			t.Errorf("ParseLang(%q) 应归一化为 %q,实际 %q err=%v", in, LangZH, l, err)
+		}
+	}
 }
 
 // console 的 dry-run 输出同样跟随语言。
@@ -381,6 +412,16 @@ func TestEveryLanguageRendersAllKinds(t *testing.T) {
 		d := r.Digest([]state.Event{sampleEvent(state.EventListed), sampleEvent(state.EventPriceDrop)})
 		if strings.Contains(d.Title+d.Body, "%!") {
 			t.Errorf("语言 %s 的摘要格式串有误:\n%s\n%s", lang, d.Title, d.Body)
+		}
+
+		// consoleHeader 的占位符个数漏写不会编译报错,只会在 dry-run 输出里
+		// 静默印出 %!(EXTRA ...)。它不走 Renderer,得单独渲染一次才能覆盖到。
+		var buf bytes.Buffer
+		if err := NewConsole(&buf, lang).Send(context.Background(), d); err != nil {
+			t.Fatalf("语言 %s 的 console 渲染失败: %v", lang, err)
+		}
+		if strings.Contains(buf.String(), "%!") {
+			t.Errorf("语言 %s 的 consoleHeader 占位符与实参不匹配:\n%s", lang, buf.String())
 		}
 	}
 }
