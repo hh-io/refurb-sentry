@@ -294,6 +294,15 @@ These are just a different `url` and `body` template too — no extra code.
 > `timestamp` / `sign`; the generic webhook only renders templates, it does not
 > sign anything. Pick "custom keywords" or the IP allowlist when you create the bot.
 
+> [!WARNING]
+> **All four return HTTP 200 on business-level failures**, putting the error in
+> the response body — DingTalk's `{"errcode":310000,"errmsg":"keywords not in
+> content"}`, Feishu's `{"code":19024}`. The generic webhook only checks the HTTP
+> status code, so those failures count as delivered, the baseline advances, and
+> **those events are lost for good** — the log just says the push succeeded.
+> Once configured, send a real one and confirm it arrives on your phone rather
+> than trusting the log, especially with custom keywords turned on.
+
 If you go with custom keywords, note that notification titles are dynamic text
 like `Listed · CN mac` — there is no word guaranteed to appear. Put the keyword
 straight into the body instead:

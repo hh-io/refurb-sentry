@@ -97,8 +97,8 @@ func TestExampleConfigWebhookTemplatesRender(t *testing.T) {
 			if form.Get("title") != msg.Title {
 				t.Errorf("%s 的 title 转义有误: %q", ch.Name, form.Get("title"))
 			}
-			if !strings.Contains(form.Get("desp"), wantTitle) {
-				t.Errorf("%s 的 desp 里没有商品标题: %q", ch.Name, form.Get("desp"))
+			if form.Get("desp") != msg.Text() {
+				t.Errorf("%s 的 desp 转义有误: %q", ch.Name, form.Get("desp"))
 			}
 		default:
 			t.Errorf("%s 的 Content-Type 无法识别: %q", ch.Name, gotType)

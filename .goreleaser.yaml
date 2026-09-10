@@ -68,7 +68,17 @@ homebrew_casks:
 
     # 没配 HOMEBREW_TAP_GITHUB_TOKEN 时跳过 cask 而不是让整个 release 失败——
     # 二进制归档和镜像不该被一个可选渠道拖下水。
-    skip_upload: '{{ if eq .Env.HOMEBREW_TAP_GITHUB_TOKEN "" }}true{{ else }}false{{ end }}'
+    #
+    # 必须用 index 而不是 .Env.HOMEBREW_TAP_GITHUB_TOKEN:GoReleaser 的模板设了
+    # missingkey=error,变量**完全未定义**时后者直接报 "map has no entry for key"
+    # 让整个 release 失败(CI 里碰巧没事,是因为 GitHub Actions 对不存在的 secret
+    # 也会导出空串;在本机跑就会炸)。index 取不到 key 只返回空值。
+    #
+    # 有 token 时给的是 auto 而非 false:只有 auto 会在 prerelease 版本上跳过发布。
+    # 写死 false 的话,推一个 v*-rc* 试流水线就会把 rc 的 cask 覆盖进 tap,
+    # 稳定用户 brew upgrade 直接拿到 rc 构建。
+    # 这与同一 workflow 里 Docker 的 latest=auto 行为对齐。
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
     homepage: https://github.com/hh-io/refurb-sentry
     description: Monitor Apple's Certified Refurbished store for listings, price drops and removals
 

@@ -45,7 +45,14 @@ body:
     id: logs
     attributes:
       label: 日志 / Logs
-      description: 日志本来就是中文的,直接贴原文,不用翻译 / Logs are Chinese by design — paste as-is
+      description: |
+        日志本来就是中文的,直接贴原文,不用翻译。
+        **但推送失败的日志里会带上完整的 webhook URL**,企业微信的 `key=`、
+        钉钉的 `access_token=`、Server 酱的 SendKey 都在 URL 里,贴之前先抹掉。
+
+        Logs are Chinese by design — paste as-is. **But a failed-push log line
+        contains the full webhook URL**, which is where WeCom / DingTalk /
+        ServerChan keep their secrets. Redact it first.
       render: shell
 
   - type: textarea
