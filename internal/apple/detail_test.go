@@ -1,6 +1,7 @@
 package apple
 
 import (
+	"errors"
 	"os"
 	"testing"
 )
@@ -16,9 +17,9 @@ func loadDetailFixture(t *testing.T) []byte {
 
 // 详情页概述里同时存在内存与存储两个容量条目,靠列表页已知的存储容量把存储那条排除掉。
 func TestParseOverviewMemory(t *testing.T) {
-	mem, ok := ParseOverviewMemory(loadDetailFixture(t), "2tb")
-	if !ok {
-		t.Fatal("应当解析出内存")
+	mem, err := ParseOverviewMemory(loadDetailFixture(t), "2tb")
+	if err != nil {
+		t.Fatalf("应当解析出内存: %v", err)
 	}
 	if mem != "36gb" {
 		t.Errorf("期望 36gb,实际 %q", mem)
@@ -28,21 +29,26 @@ func TestParseOverviewMemory(t *testing.T) {
 // 不知道存储容量时有两个候选,此时必须放弃而不是挑一个——
 // 猜错会让规则匹配到配置完全不同的机器,比读不到更糟。
 func TestParseOverviewMemoryAmbiguous(t *testing.T) {
-	if mem, ok := ParseOverviewMemory(loadDetailFixture(t), ""); ok {
+	mem, err := ParseOverviewMemory(loadDetailFixture(t), "")
+	if err == nil {
 		t.Errorf("候选不唯一时应当放弃,却返回了 %q", mem)
+	}
+	if !errors.Is(err, ErrMemoryAmbiguous) {
+		t.Errorf("应当报候选不唯一,实际 %v", err)
 	}
 }
 
 // 存储容量对不上(例如上游改了维度值格式)同样会剩下两个候选,一样必须放弃。
 func TestParseOverviewMemoryCapacityMismatch(t *testing.T) {
-	if mem, ok := ParseOverviewMemory(loadDetailFixture(t), "512gb"); ok {
+	if mem, err := ParseOverviewMemory(loadDetailFixture(t), "512gb"); err == nil {
 		t.Errorf("存储锚点失配时应当放弃,却返回了 %q", mem)
 	}
 }
 
 func TestParseOverviewMemoryNoOverview(t *testing.T) {
-	if _, ok := ParseOverviewMemory([]byte("<html><body>没有概述</body></html>"), "2tb"); ok {
-		t.Error("页面无概述时应当返回 false")
+	_, err := ParseOverviewMemory([]byte("<html><body>没有概述</body></html>"), "2tb")
+	if !errors.Is(err, ErrNoOverview) {
+		t.Errorf("页面无概述时应当报 ErrNoOverview,实际 %v", err)
 	}
 }
 
@@ -52,20 +58,25 @@ func TestParseOverviewMemoryIgnoresBandwidth(t *testing.T) {
 	html := []byte(`window.pageLevelData.Overview = {"tiles":{"groups":{"items":[` +
 		`{"value":{"mutiValueAttributeSelector":{"attributeList":{"items":[` +
 		`{"value":"460GB/s 内存带宽"},{"value":"48GB 统一内存"},{"value":"1TB 固态硬盘²"}]}}}}]}}};` + "\n")
-	mem, ok := ParseOverviewMemory(html, "1tb")
-	if !ok || mem != "48gb" {
-		t.Errorf("期望 48gb,实际 %q ok=%v", mem, ok)
+	mem, err := ParseOverviewMemory(html, "1tb")
+	if err != nil || mem != "48gb" {
+		t.Errorf("期望 48gb,实际 %q err=%v", mem, err)
 	}
 }
 
-// 法语站用 Go/To 表示 GB/TB,归一化后才能与列表页的 dimensionCapacity 比较。
+// 法语站用 Go/To 表示 GB/TB,且数字与单位之间是**不间断空格**(实测 "24\u00a0Go")。
+// Go 的 \s 不含 U+00A0,只写 \s* 会让整个法国站的补齐静默失效——这里用真实码位守着。
 func TestParseOverviewMemoryFrenchUnits(t *testing.T) {
+	// 码位必须拼接进来:反引号是原始字符串,里面的 \u00a0 只是六个字面字符,
+	// 那样测的就不是不间断空格了,而且照样会通过——一个防不住任何东西的测试。
+	nbsp := "\u00a0"
 	html := []byte(`window.pageLevelData.Overview = {"tiles":{"groups":{"items":[` +
 		`{"value":{"mutiValueAttributeSelector":{"attributeList":{"items":[` +
-		`{"value":"Mémoire unifiée de 36 Go"},{"value":"SSD de 2 To"}]}}}}]}}};` + "\n")
-	mem, ok := ParseOverviewMemory(html, "2tb")
-	if !ok || mem != "36gb" {
-		t.Errorf("期望 36gb,实际 %q ok=%v", mem, ok)
+		`{"value":"M\u00e9moire unifi\u00e9e de 36` + nbsp + `Go"},` +
+		`{"value":"SSD de 2` + nbsp + `To"}]}}}}]}}};` + "\n")
+	mem, err := ParseOverviewMemory(html, "2tb")
+	if err != nil || mem != "36gb" {
+		t.Errorf("期望 36gb,实际 %q err=%v", mem, err)
 	}
 }
 
@@ -96,5 +107,28 @@ func TestMemoryCacheDistinguishesMissFromUnknown(t *testing.T) {
 	}
 	if v != "" {
 		t.Errorf("期望空串,实际 %q", v)
+	}
+}
+
+// 各站点在数字与单位之间混用多种 Unicode 空白,逐个码位守住。
+// 写成 \u 转义而非字面字符:字面的不间断空格在编辑中极易退化成普通空格,
+// 那样这个测试会照常通过,却不再防任何东西。
+func TestParseOverviewMemoryUnicodeSpaces(t *testing.T) {
+	for name, sp := range map[string]string{
+		"普通空格":       "\u0020",
+		"不间断空格":      "\u00a0",
+		"窄不间断空格":     "\u202f",
+		"thin space": "\u2009",
+		"全角空格":       "\u3000",
+		"无空格":        "",
+	} {
+		html := []byte(`window.pageLevelData.Overview = {"tiles":{"groups":{"items":[` +
+			`{"value":{"mutiValueAttributeSelector":{"attributeList":{"items":[` +
+			`{"value":"48` + sp + `GB unified memory"},` +
+			`{"value":"1` + sp + `TB SSD"}]}}}}]}}};` + "\n")
+		mem, err := ParseOverviewMemory(html, "1tb")
+		if err != nil || mem != "48gb" {
+			t.Errorf("%s: 期望 48gb,实际 %q err=%v", name, mem, err)
+		}
 	}
 }

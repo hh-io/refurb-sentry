@@ -321,7 +321,9 @@ when your rules filter by memory.
   known from the grid (`dimensionCapacity`), so it is used as an anchor to exclude that
   entry; the single remaining one is the memory. If more or fewer than one remains, the
   parse is abandoned — guessing would match a rule against a differently specced
-  machine, which is worse than not reading it at all.
+  machine, which is worse than not reading it at all. Verified against 14 regions
+  (US JP DE FR UK KR IT ES NL CH TW CA AU; HK currently has nothing to fill in),
+  including the French store's `24 Go` — a non-breaking space with French units.
 - **Failure never affects the product.** On a 5xx or a page redesign the product is
   kept as-is with the memory dimension left empty; it is never mistaken for a delisting.
 - **Results are cached per part number.** A part number's configuration is fixed, so one
