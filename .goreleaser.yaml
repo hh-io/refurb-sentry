@@ -1,0 +1,59 @@
+version: 2
+
+project_name: refurb-sentry
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: refurb-sentry
+    main: ./cmd/refurb-sentry
+    binary: refurb-sentry
+    # 纯 Go 依赖,关掉 CGO 才能交叉编译出静态二进制
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      # macOS 没有 32 位 ARM
+      - goos: darwin
+        goarch: arm
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}
+    files:
+      - README.md
+      - README.zh-CN.md
+      - LICENSE
+      - configs/config.example.yaml
+      - deploy/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+release:
+  draft: false
+  prerelease: auto

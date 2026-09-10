@@ -2,6 +2,11 @@
 
 [English](README.md) · **简体中文**
 
+[![CI](https://github.com/hh-io/refurb-sentry/actions/workflows/ci.yml/badge.svg)](https://github.com/hh-io/refurb-sentry/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hh-io/refurb-sentry)](https://github.com/hh-io/refurb-sentry/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hh-io/refurb-sentry)](https://goreportcard.com/report/github.com/hh-io/refurb-sentry)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 监控 Apple 官网**官方翻新产品**的上架、降价与下架,按规格过滤后推送到 Bark / Telegram 等渠道。
 
 单个静态二进制,常驻运行,状态落地为一个 JSON 文件,重启不丢。
@@ -55,12 +60,32 @@ https://www.apple.com.cn/shop/product/...
 
 ## 快速开始
 
-需要 Go 1.26 及以上。
+### 安装
+
+从 [最新 release](https://github.com/hh-io/refurb-sentry/releases/latest)
+下载对应平台的归档——支持 macOS 与 Linux 的 amd64 / arm64 / armv7,
+里面包含二进制、示例配置和 systemd / launchd 单元文件:
+
+```bash
+tar xzf refurb-sentry_*_darwin_arm64.tar.gz
+```
+
+有 Go 1.26+ 工具链也可以直接从源码安装:
+
+```bash
+go install github.com/hh-io/refurb-sentry/cmd/refurb-sentry@latest
+```
+
+或者克隆后自己构建,这样同时能拿到示例配置和单元文件:
 
 ```bash
 git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
 go build -o refurb-sentry ./cmd/refurb-sentry
+```
 
+### 运行
+
+```bash
 cp configs/config.example.yaml configs/config.yaml
 export BARK_KEY=你的_bark_device_key
 
@@ -315,6 +340,9 @@ go test ./... && go vet ./... && gofmt -l .
 
 新增地区只需在 `internal/apple/regions.go` 的表里加一行,启动校验会验证其可用性。
 新货币记得同时在 `internal/apple/model.go` 的符号表里补一项,否则会退化成 `XXX 999` 的展示。
+
+同样这三项检查会在每次 push 和 pull request 时由 CI 跑一遍。推一个 `v*` 标签则会用
+GoReleaser 构建各平台归档并发布成 GitHub release。
 
 ## 免责声明
 

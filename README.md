@@ -2,6 +2,11 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/hh-io/refurb-sentry/actions/workflows/ci.yml/badge.svg)](https://github.com/hh-io/refurb-sentry/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hh-io/refurb-sentry)](https://github.com/hh-io/refurb-sentry/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hh-io/refurb-sentry)](https://goreportcard.com/report/github.com/hh-io/refurb-sentry)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Watches Apple's **Certified Refurbished** store for new listings, price drops and
 removals, filters them by spec, and pushes what you care about to Bark / Telegram
 and friends.
@@ -75,12 +80,33 @@ MX and IN have no refurbished store at all (404) — don't add them.
 
 ## Quick start
 
-Requires Go 1.26 or newer.
+### Install
+
+Grab the archive for your platform from the
+[latest release](https://github.com/hh-io/refurb-sentry/releases/latest) — macOS
+and Linux, amd64 / arm64 / armv7. It ships the binary, the example config and
+the systemd / launchd unit files:
+
+```bash
+tar xzf refurb-sentry_*_darwin_arm64.tar.gz
+```
+
+With a Go 1.26+ toolchain you can install from source instead:
+
+```bash
+go install github.com/hh-io/refurb-sentry/cmd/refurb-sentry@latest
+```
+
+or clone and build, which also gets you the example config and unit files:
 
 ```bash
 git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
 go build -o refurb-sentry ./cmd/refurb-sentry
+```
 
+### Run
+
+```bash
 cp configs/config.example.yaml configs/config.yaml
 export BARK_KEY=your_bark_device_key
 
@@ -374,6 +400,10 @@ go test ./... && go vet ./... && gofmt -l .
 Adding a region is one row in the table in `internal/apple/regions.go`; the startup
 check verifies it's actually reachable. A new currency also needs an entry in the
 symbol table in `internal/apple/model.go`, or prices degrade to `XXX 999`.
+
+The same three checks run in CI on every push and pull request. Pushing a `v*`
+tag builds the cross-platform archives with GoReleaser and publishes them as a
+GitHub release.
 
 ## Disclaimer
 

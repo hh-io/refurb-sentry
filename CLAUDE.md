@@ -76,6 +76,11 @@ go test ./... && go vet ./... && gofmt -l .
 ./refurb-sentry -config configs/config.yaml -once -dry-run
 ```
 
+CI(`.github/workflows/ci.yml`)在每次 push / PR 上跑同样的三项检查。
+发版是推 `v*` 标签,`.github/workflows/release.yml` 用 GoReleaser
+(`.goreleaser.yaml`)构建 darwin/linux 的 amd64、arm64、armv7 归档并发布 release。
+版本号通过 `-ldflags -X main.version=` 注入,`go install` 装的会显示 `dev`。
+
 新增地区:在 `internal/apple/regions.go` 的表里加一行即可,启动校验会验证可用性。
 新货币记得同时在 `internal/apple/model.go` 的符号表里补一项,否则会退化成 "XXX 999" 的展示。
 实测 MX、IN 没有翻新店(返回 404),不要加。
