@@ -15,8 +15,11 @@ Single static binary, runs as a daemon, keeps its state in one JSON file so a
 restart loses nothing.
 
 <p align="center">
-  <img src="assets/notification.png" width="420"
-       alt="Two Bark notifications on an iPhone lock screen: a price drop and a new listing, each showing which rule matched">
+  <img src="assets/notification.png" width="320"
+       alt="Bark notifications on an iPhone lock screen (English)">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/notification.zh-CN.png" width="320"
+       alt="Bark notifications on an iPhone lock screen (Chinese)">
 </p>
 
 > [!NOTE]
