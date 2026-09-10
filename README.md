@@ -265,7 +265,8 @@ rules:
 
 ### 4. Chip and Core Count Parsing
 
-Model, memory, and capacity come from structured page fields and are reliable. But
+Model, memory, and capacity come from structured page fields and are fairly reliable
+(one exception is covered in the next section). But
 **chip models and CPU/GPU core counts exist only inside the product title**, and the
 word order differs completely between localised stores:
 
@@ -291,6 +292,48 @@ is still tracked (chip recorded as unknown), but rules using `chips`, `min_cpu_c
 or `min_gpu_cores` will skip it. If notifications go missing, run
 `./refurb-sentry -config configs/config.yaml -list-dims` and check whether the `chips`
 line still looks sane.
+
+### 5. Missing Memory Dimension and `fill_missing_memory`
+
+**Within a single category, upstream is inconsistent about which dimensions it
+provides.** Measured on the CN store: 58 of 206 mac products carry no `tsMemorySize` —
+the 16-inch MacBook Pro with M5 Pro (22) and M5 Max (15), Studio Display (13), and
+MacBook Neo (8). The field is absent from the product data entirely, and the title
+does not carry it either.
+
+Combined with the **strict matching** rule above, the failure is silent: a rule with
+`tsMemorySize: [32gb, 36gb, 48gb, 64gb]` **quietly misses an entire tier of machines**
+— no error, no warning, you simply never hear about them.
+
+When enabled, products missing the memory dimension get one extra request to their
+product detail page, and the memory read from it is written back under the same key:
+
+```yaml
+http:
+  fill_missing_memory: true
+```
+
+Off by default, since it breaks the one-request-per-category design. Turn it on only
+when your rules filter by memory.
+
+- **The heuristic is language-independent.** The detail page overview lists exactly two
+  entries carrying a capacity unit (memory and storage). The storage value is already
+  known from the grid (`dimensionCapacity`), so it is used as an anchor to exclude that
+  entry; the single remaining one is the memory. If more or fewer than one remains, the
+  parse is abandoned — guessing would match a rule against a differently specced
+  machine, which is worse than not reading it at all.
+- **Failure never affects the product.** On a 5xx or a page redesign the product is
+  kept as-is with the memory dimension left empty; it is never mistaken for a delisting.
+- **Results are cached per part number.** A part number's configuration is fixed, so one
+  lookup suffices. After the first round only newly listed products cost an extra
+  request, and "looked up, found nothing" is remembered too rather than retried forever.
+- **Categories with no memory dimension are skipped entirely**, watch among them. This
+  is not merely about saving requests: in testing, watch detail pages yielded a
+  "memory" for all 28 products — actually the storage capacity — which would have
+  polluted `tsMemorySize`.
+
+The cost is a slower first round (45 extra requests for CN mac, roughly 2 minutes at
+the default 1-3s spacing). Steady-state rounds cost almost nothing extra.
 
 ---
 

@@ -52,6 +52,12 @@ type HTTPConfig struct {
 	// DelayMin/DelayMax 是同一轮内相邻请求的随机间隔,用来打散请求节奏。
 	DelayMin Duration `yaml:"delay_min"`
 	DelayMax Duration `yaml:"delay_max"`
+
+	// FillMissingMemory 开启后,对列表页没给内存维度的商品补抓一次详情页。
+	// 实测上游对 16 英寸 MacBook Pro 的 M5 Pro / M5 Max 不给 tsMemorySize,
+	// 不补的话按内存过滤的规则会静默漏掉这一整档机型。
+	// 默认关闭:它打破了「一分类一请求」的设计,只有按内存过滤时才值得付这个代价。
+	FillMissingMemory bool `yaml:"fill_missing_memory"`
 }
 
 type NotifyConfig struct {

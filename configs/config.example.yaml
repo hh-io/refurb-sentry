@@ -31,6 +31,13 @@ http:
   # 同一轮内相邻请求之间的随机停顿,避免十几个请求同时发出。
   delay_min: 1s
   delay_max: 3s
+  # 对列表页没给内存维度的商品补抓一次详情页,把内存读出来后写回 tsMemorySize。
+  # 实测上游对 16 英寸 MacBook Pro 的 M5 Pro / M5 Max 就不给这个维度
+  # (CN 站 106 件 MacBook Pro 里有 37 件),而规则把维度缺失判为不匹配,
+  # 不补的话「内存 32GB 以上」这类规则会静默漏掉整整一档机型。
+  # 默认关闭:它打破了「一分类一请求」的设计,只有按内存过滤时才值得付这个代价。
+  # 结果按货号缓存,首轮之后只有新上架的商品才会多一个请求。
+  fill_missing_memory: false
 
 notify:
   group: refurb-sentry

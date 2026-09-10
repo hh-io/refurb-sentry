@@ -40,6 +40,9 @@ type Runner struct {
 	log    *slog.Logger
 	dryRun bool
 
+	// memCache 缓存详情页补齐来的内存,仅在 fill_missing_memory 开启时使用。
+	memCache *apple.MemoryCache
+
 	// rollbacks 是连续回滚的轮数,用于在推送永久性失败时放弃重试。见 maxRollbacks。
 	rollbacks int
 }
@@ -88,6 +91,7 @@ func NewRunner(opt Options) (*Runner, error) {
 		cfg: cfg, client: opt.Client, rules: opt.Rules, notif: opt.Notifier,
 		render: notify.NewRenderer(lang, cfg.Notify.Group),
 		st:     opt.State, scopes: scopes, log: opt.Logger, dryRun: opt.DryRun,
+		memCache: apple.NewMemoryCache(),
 	}, nil
 }
 
@@ -169,6 +173,9 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			r.log.Warn("部分商品价格无法解析已跳过", "scope", sc.String(), "skipped", grid.Skipped)
 		}
 		r.log.Debug("抓取完成", "scope", sc.String(), "products", len(grid.Products))
+		if err := r.fillMissingMemory(ctx, sc, grid); err != nil {
+			return err
+		}
 		results = append(results, fetched{scope: sc, grid: grid})
 	}
 
@@ -303,6 +310,10 @@ func (r *Runner) pause(ctx context.Context, i int) error {
 	if i == 0 {
 		return nil
 	}
+	return r.delay(ctx)
+}
+
+func (r *Runner) delay(ctx context.Context) error {
 	base := r.cfg.HTTP.DelayMin.Std()
 	spread := r.cfg.HTTP.DelayMax.Std() - base
 	d := r.client.Jitter(base, spread)
@@ -481,4 +492,85 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// fillMissingMemory 为列表页没给内存维度的商品补抓详情页。
+//
+// 上游数据不一致:同一批 MacBook Pro 里 14 英寸机型带 tsMemorySize,
+// 16 英寸的 M5 Pro / M5 Max 不带(实测 CN 站 106 件里有 37 件如此)。
+// 而过滤规则把维度缺失判为不匹配,不补的话「内存 32GB 以上」这类规则
+// 会静默漏掉整整一档机型——用户看不到任何异常,只是永远收不到通知。
+//
+// 三条边界:
+//   - 详情页失败绝不影响商品本身。补不到就保持维度缺失,商品照常参与 diff,
+//     否则一次详情页 5xx 会让几十台机器凭空「下架」。
+//   - 结果按货号缓存。同一货号配置固定,查一次就够;否则常驻进程每轮
+//     都要重抓几十个详情页,把「一分类一请求」的设计彻底破坏掉。
+//   - 只有 ctx 取消才向上返回错误,与抓取列表页时的处理保持一致。
+func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Grid) error {
+	if !r.cfg.HTTP.FillMissingMemory {
+		return nil
+	}
+	// 只在这个分类本来就有内存维度、仅个别商品缺失时才补。
+	// 否则 watch 这种压根没有内存概念的分类会让每一件商品都白抓一次详情页。
+	if !scopeHasMemory(grid.Products) {
+		return nil
+	}
+
+	var filled, failed int
+	for i := range grid.Products {
+		p := &grid.Products[i]
+		if p.Dimensions[apple.MemoryDimension] != "" {
+			continue
+		}
+
+		mem, cached := r.memCache.Get(p.PartNumber)
+		if !cached {
+			if err := r.delay(ctx); err != nil {
+				return err
+			}
+			var err error
+			mem, err = r.client.FetchMemory(ctx, sc.region, p.URL, p.Dimensions[apple.CapacityDimension])
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// 空串同样入缓存:上游永远不给内存的机器不该每轮都被重试一遍。
+				r.memCache.Put(p.PartNumber, "")
+				r.log.Debug("详情页未能补齐内存", "scope", sc.String(), "part", p.PartNumber, "err", err)
+				failed++
+				continue
+			}
+			r.memCache.Put(p.PartNumber, mem)
+		}
+		if mem == "" {
+			failed++
+			continue
+		}
+
+		// 维度 map 直接来自解析结果,可能是 nil。
+		if p.Dimensions == nil {
+			p.Dimensions = make(map[string]string, 1)
+		}
+		p.Dimensions[apple.MemoryDimension] = mem
+		filled++
+	}
+
+	if filled > 0 || failed > 0 {
+		r.log.Debug("内存维度补齐完成",
+			"scope", sc.String(), "filled", filled, "failed", failed, "cached", r.memCache.Len())
+	}
+	return nil
+}
+
+// scopeHasMemory 判断这个分类是否使用内存维度。
+// 判据是「同批里至少有一件带这个维度」,而不是硬编码分类白名单:
+// 上游哪天给 watch 加上内存、或给 mac 换个键名,这里都不必跟着改。
+func scopeHasMemory(products []apple.Product) bool {
+	for _, p := range products {
+		if p.Dimensions[apple.MemoryDimension] != "" {
+			return true
+		}
+	}
+	return false
 }
