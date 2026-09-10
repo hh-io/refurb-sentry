@@ -341,34 +341,127 @@ func (r *Runner) ListDimensions(ctx context.Context, out func(string)) error {
 		}
 
 		out(fmt.Sprintf("\n===== %s(%d 件)=====", sc, len(grid.Products)))
-		values := map[string]map[string]bool{}
-		for _, p := range grid.Products {
-			for k, v := range p.Dimensions {
-				if values[k] == nil {
-					values[k] = map[string]bool{}
-				}
-				values[k][v] = true
-			}
+		idx := indexDimensions(grid)
+		for _, k := range idx.keys {
+			out(formatDimension(k, idx.legend[k], idx.values[k]))
 		}
-		for _, lg := range grid.Legends {
-			out(formatDimension(lg.Key, lg.Legend, sortedKeys(values[lg.Key])))
-			delete(values, lg.Key)
-		}
-		for _, k := range sortedKeys(values) {
-			out(formatDimension(k, "", sortedKeys(values[k])))
+		if len(idx.chips) > 0 {
+			out(formatDimension("chips", "芯片", idx.chips))
 		}
 
-		chips := map[string]bool{}
-		for _, p := range grid.Products {
-			if c := filter.ParseSpec(p.Title).Chip; c != "" {
-				chips[c] = true
-			}
-		}
-		if len(chips) > 0 {
-			out(formatDimension("chips", "芯片", sortedKeys(chips)))
-		}
+		out("\n  ----- 规则骨架(整段复制到配置的 rules: 下,再删掉不要的取值)-----")
+		out(formatRuleSkeleton(sc, idx))
 	}
 	return nil
+}
+
+// dimensionIndex 是一个 scope 内全部商品的维度取值汇总。
+// 上面的表格与下面的规则骨架同源于它,免得两处各自遍历一遍商品而列出不同的取值。
+type dimensionIndex struct {
+	// keys 是维度键的展示顺序。含 legends 声明了但当前无商品命中的键——
+	// 表格照常列出它(信息是「有这个维度,只是眼下没货」),但骨架会跳过。
+	keys   []string
+	legend map[string]string
+	values map[string][]string
+	chips  []string
+}
+
+// indexDimensions 汇总维度取值。键的顺序照搬上游 legends 的展示顺序,
+// legends 未声明的键按字母序补在后面。
+func indexDimensions(grid *apple.Grid) dimensionIndex {
+	sets := map[string]map[string]bool{}
+	for _, p := range grid.Products {
+		for k, v := range p.Dimensions {
+			if sets[k] == nil {
+				sets[k] = map[string]bool{}
+			}
+			sets[k][v] = true
+		}
+	}
+
+	idx := dimensionIndex{
+		legend: make(map[string]string, len(grid.Legends)),
+		values: make(map[string][]string, len(sets)),
+	}
+	seen := map[string]bool{}
+	for _, lg := range grid.Legends {
+		if seen[lg.Key] {
+			continue
+		}
+		seen[lg.Key] = true
+		idx.legend[lg.Key] = lg.Legend
+		idx.keys = append(idx.keys, lg.Key)
+	}
+	for _, k := range sortedKeys(sets) {
+		if !seen[k] {
+			idx.keys = append(idx.keys, k)
+		}
+	}
+	for _, k := range idx.keys {
+		idx.values[k] = sortedKeys(sets[k])
+	}
+
+	chips := map[string]bool{}
+	for _, p := range grid.Products {
+		if c := filter.ParseSpec(p.Title).Chip; c != "" {
+			chips[c] = true
+		}
+	}
+	idx.chips = sortedKeys(chips)
+	return idx
+}
+
+// formatRuleSkeleton 把当前在售的取值拼成可直接粘贴到配置 rules: 下的片段。
+// 上面的表格是给人读的,这段是给人复制的——否则用户得对着表格把几十个取值手工誊一遍,
+// 而维度键名(refurbClearModel、dimensionCaseMaterial)恰恰是最容易抄错的东西。
+//
+// 骨架列出全部取值,等价于「不过滤」:留给用户做的是删减,不是补全。
+func formatRuleSkeleton(sc scope, idx dimensionIndex) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "  - name: %s %s\n", sc.region.Code, sc.category)
+	fmt.Fprintf(&b, "    regions: [%s]\n", sc.region.Code)
+	fmt.Fprintf(&b, "    categories: [%s]\n", sc.category)
+
+	var dims []string
+	for _, k := range idx.keys {
+		if len(idx.values[k]) > 0 {
+			dims = append(dims, k)
+		}
+	}
+	if len(dims) > 0 {
+		b.WriteString("    dimensions:\n")
+		for _, k := range dims {
+			fmt.Fprintf(&b, "      %s: [%s]\n", k, yamlFlowSeq(idx.values[k]))
+		}
+	}
+	if len(idx.chips) > 0 {
+		fmt.Fprintf(&b, "    chips: [%s]\n", yamlFlowSeq(idx.chips))
+	}
+	// 这两项没有可枚举的取值,只能给注释行提示存在。YAML 注释粘贴过去照样合法。
+	b.WriteString("    # min_cpu_cores: 12\n")
+	b.WriteString("    # max_price: 20000")
+	return b.String()
+}
+
+// yamlFlowSeq 把取值拼成 flow 序列。取值直接来自上游,含逗号或冒号时裸写会改变
+// YAML 语义,而这段是给人整段复制的——吐出解析不了的片段等于白给。
+func yamlFlowSeq(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = yamlFlowScalar(v)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// yamlFlowScalar 只在裸写会有歧义时加引号。一律加引号也正确,
+// 但骨架是给人读和改的,满屏的 "macbookpro" 是白白多出来的噪声。
+func yamlFlowScalar(v string) string {
+	// & * ! | > % @ ` 仅在标量开头才有特殊含义,这里不做位置区分:
+	// 维度取值是 slug,误判的代价只是多一对引号,漏判的代价是片段解析失败。
+	if v == "" || v != strings.TrimSpace(v) || strings.ContainsAny(v, ",[]{}:#&*!|>'\"%@"+"`") {
+		return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
+	}
+	return v
 }
 
 // formatDimension 用逗号分隔取值。取值本身可能含空格(如芯片名 "M4 Max"),

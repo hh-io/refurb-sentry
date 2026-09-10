@@ -103,7 +103,7 @@ go build -o refurb-sentry ./cmd/refurb-sentry
 cp configs/config.example.yaml configs/config.yaml
 export BARK_KEY=your_bark_device_key
 
-# 2. Inspect available filter dimensions and active product values right now
+# 2. Inspect available filter dimensions and active product values (ends with a paste-ready rule skeleton)
 ./refurb-sentry -config configs/config.yaml -list-dims
 
 # 3. Dry-run one round: prints parsed notifications to stdout (no state written, no alerts sent)
@@ -125,7 +125,7 @@ export BARK_KEY=your_bark_device_key
 | `-config` | Path to configuration file (default: `configs/config.yaml`) |
 | `-once` | Run a single round and exit |
 | `-dry-run` | Dry-run mode: prints notifications to stdout without modifying state or sending alerts |
-| `-list-dims` | Prints currently available dimensions and values for configured regions/categories |
+| `-list-dims` | Prints currently available dimensions and values for configured regions/categories, followed by a paste-ready rule skeleton |
 | `-version` | Print version information |
 
 ---
@@ -184,13 +184,37 @@ $ ./refurb-sentry -config configs/config.yaml -list-dims
   tsMemorySize           (Memory)   128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb
   dimensionCapacity      (Capacity) 1tb, 256gb, 2tb, 4tb, 512gb, 8tb
   chips                  (芯片)   A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro
+
+  ----- 规则骨架(整段复制到配置的 rules: 下,再删掉不要的取值)-----
+  - name: US mac
+    regions: [US]
+    categories: [mac]
+    dimensions:
+      refurbClearModel: [display, imac, macbookair, macbookneo, macbookpro, macmini, macstudio]
+      dimensionScreensize: [13inch, 14inch, 15inch, 16inch, 24inch, 27inch]
+      dimensionRelYear: [2022, 2023, 2024, 2025, 2026]
+      dimensionColor: [blue, midnight, silver, space_gray, spaceblack, starlight]
+      tsMemorySize: [128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb]
+      dimensionCapacity: [1tb, 256gb, 2tb, 4tb, 512gb, 8tb]
+    chips: [A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro]
+    # min_cpu_cores: 12
+    # max_price: 20000
 ```
 
 The labels in parentheses come from the Apple store page itself, so they arrive in
 that region's language. `chips` is computed by this tool rather than read off the
-page, so it is always labelled `芯片` — as is the `件` in the header, which is part
-of the operator-facing console output. The keys and values on either side are
-stable identifiers, and those are what go into a rule.
+page, so it is always labelled `芯片` — as is the `件` in the header and the skeleton
+banner, which are part of the operator-facing console output. The keys and values on
+either side are stable identifiers, and those are what go into a rule.
+
+The block below the table is a **paste-ready rule skeleton**: every key and value in
+it is currently in stock for that region/category, so you can copy the whole thing
+under `rules:` in your config and start editing. Listing every value is equivalent to
+no filtering at all — **the work is deleting, not adding**. Pare it down to the values
+you actually want and the rule starts doing something. `min_cpu_cores` and `max_price`
+have no enumerable values, so they appear as commented lines to uncomment when needed.
+Dimensions with nothing in stock are left out of the skeleton: writing one into a rule
+would add a condition that can never match.
 
 ### 2. Rule Example
 

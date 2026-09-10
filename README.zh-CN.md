@@ -103,7 +103,7 @@ go build -o refurb-sentry ./cmd/refurb-sentry
 cp configs/config.example.yaml configs/config.yaml
 export BARK_KEY=your_bark_device_key
 
-# 2. 查询当前地区和分类可用的过滤维度与真实在售值
+# 2. 查询当前地区和分类可用的过滤维度与真实在售值（末尾附可直接粘贴的规则骨架）
 ./refurb-sentry -config configs/config.yaml -list-dims
 
 # 3. 试运行一轮：在终端打印当前抓取与通知结果（不写状态文件、不触发实际推送）
@@ -125,7 +125,7 @@ export BARK_KEY=your_bark_device_key
 | `-config` | 配置文件路径，默认 `configs/config.yaml` |
 | `-once` | 仅执行单轮抓取与比对后退出 |
 | `-dry-run` | 试运行模式：不实际推送、不写入状态文件，将通知打印到终端 |
-| `-list-dims` | 查询目标地区/分类在 Apple 商店当前在售商品的所有维度及取值 |
+| `-list-dims` | 查询目标地区/分类在 Apple 商店当前在售商品的所有维度及取值，并附一段可粘贴的规则骨架 |
 | `-version` | 打印当前版本号 |
 
 ---
@@ -184,11 +184,32 @@ $ ./refurb-sentry -config configs/config.yaml -list-dims
   tsMemorySize           (内存)   128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb
   dimensionCapacity      (容量)   1tb, 256gb, 2tb, 4tb, 512gb, 8tb
   chips                  (芯片)   A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro
+
+  ----- 规则骨架(整段复制到配置的 rules: 下,再删掉不要的取值)-----
+  - name: CN mac
+    regions: [CN]
+    categories: [mac]
+    dimensions:
+      refurbClearModel: [display, imac, macbookair, macbookneo, macbookpro, macmini, macstudio]
+      dimensionScreensize: [13inch, 14inch, 15inch, 16inch, 24inch, 27inch]
+      dimensionRelYear: [2022, 2024, 2025, 2026]
+      dimensionColor: [blue, midnight, silver, space_gray, spaceblack, starlight]
+      tsMemorySize: [128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb]
+      dimensionCapacity: [1tb, 256gb, 2tb, 4tb, 512gb, 8tb]
+    chips: [A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro]
+    # min_cpu_cores: 12
+    # max_price: 20000
 ```
 
 括号里的标签直接取自 Apple 商店页面，因此**会随地区语言变化**（抓美区就是 `(Models)`、
 `(Memory)`）；只有 `chips` 是本工具自己算出来的，标签恒为 `芯片`，表头的 `件` 同理——
 那属于面向运维的终端输出。括号两侧的键与取值是稳定标识符，写规则时用的正是它们。
+
+表格下面那段是**可直接粘贴的规则骨架**，键名与取值都是该地区/分类当前实际在售的值，
+整段复制到配置的 `rules:` 下即可开始改。它列出全部取值时等价于「不过滤」，
+**要做的是删减而不是补全**——删到只剩你想要的那几个取值，规则才开始起作用。
+`min_cpu_cores` 与 `max_price` 没有可枚举的取值，以注释行形式列出，需要时取消注释。
+当前无货的维度不会进骨架：写进规则等于加了一个永不匹配的条件。
 
 ### 2. 规则编写示例
 

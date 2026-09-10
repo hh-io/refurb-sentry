@@ -136,6 +136,8 @@ channels:
 #
 # dimensions 的可用键与取值随分类而变,用 -list-dims 查询当前实际值:
 #   go run ./cmd/refurb-sentry -config configs/config.yaml -list-dims
+# 它在表格之后还会打印一段可直接粘贴到本节点下的规则骨架,
+# 里面已填好当前在售的全部取值——复制过来删到只剩想要的即可,不必手抄键名。
 rules:
   - name: MacBook Pro 高配
     regions: [CN]
