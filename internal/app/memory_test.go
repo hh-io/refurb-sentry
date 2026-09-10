@@ -366,3 +366,25 @@ func TestFillMissingMemoryStopsRetryingAfterRepeatedFailure(t *testing.T) {
 		t.Errorf("攒够 3 轮后应当放弃重试,期望 3 次请求,实际 %d 次", got)
 	}
 }
+
+// 缺容量锚点的商品解析必然失败(无从排除存储条目),不该为它发这个请求。
+// 实测 CN mac 的 13 件 Studio Display 内存与容量两个维度都没有。
+func TestFillMissingMemorySkipsProductsWithoutCapacityAnchor(t *testing.T) {
+	var hits atomic.Int64
+	srv := detailServer(t, &hits)
+	r := newMemoryRunner(t, true)
+
+	grid := &apple.Grid{Products: []apple.Product{
+		{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+		{PartNumber: "NOCAP", URL: srv.URL + "/nocap", Dimensions: map[string]string{"dimensionColor": "silver"}},
+	}}
+	if err := r.fillMissingMemory(context.Background(), macScope(t), grid); err != nil {
+		t.Fatal(err)
+	}
+	if hits.Load() != 0 {
+		t.Errorf("没有容量锚点时不该发请求,实际 %d 个", hits.Load())
+	}
+	if _, ok := grid.Products[1].Dimensions["tsMemorySize"]; ok {
+		t.Error("不该写入内存维度")
+	}
+}

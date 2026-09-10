@@ -539,6 +539,13 @@ func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Gr
 			skipped++
 			continue
 		}
+		// 没有容量锚点就无从把存储条目排除,详情页拿回来也解析不出内存
+		// (见 ParseOverviewMemory),这个请求注定失败。实测 CN mac 的 13 件
+		// Studio Display 正属此类:内存与容量两个维度它都没有。
+		if p.Dimensions[apple.CapacityDimension] == "" {
+			skipped++
+			continue
+		}
 
 		mem, cached := r.memCache.Get(p.PartNumber)
 		if cached {
