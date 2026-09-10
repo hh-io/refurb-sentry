@@ -7,12 +7,9 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/hh-io/refurb-sentry)](https://goreportcard.com/report/github.com/hh-io/refurb-sentry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Watches Apple's **Certified Refurbished** store for new listings, price drops and
-removals, filters them by spec, and pushes what you care about to Bark / Telegram
-and friends.
+Watches Apple's **Certified Refurbished** store for new listings, price drops, and removals, filters them by multi-dimensional hardware specs, and pushes actionable alerts to Bark, Telegram, Feishu, WeCom, DingTalk, and more.
 
-Single static binary, runs as a daemon, keeps its state in one JSON file so a
-restart loses nothing.
+Single static binary, runs as a lightweight daemon, keeps state in one JSON file atomically so restarts lose nothing.
 
 <p align="center">
   <img src="assets/notification.png" width="320"
@@ -23,17 +20,121 @@ restart loses nothing.
 </p>
 
 > [!NOTE]
-> Notification text is available in English (`notify.lang: en`) and Chinese
-> (`zh-CN`, the default). Log output and error messages are always Chinese —
-> they're for operators, not end users. Product titles come through in whatever
-> language the target Apple store uses, so `lang: en` with `regions: [CN]` gives
-> you an English shell around Chinese titles.
+> Notification text is available in English (`notify.lang: en`) and Chinese (`zh-CN`, default). Log output and error messages are always Chinese (designed for operators and troubleshooting). Product titles come directly from the monitored Apple store (e.g. watching the US store yields English titles; watching the CN store yields Chinese titles).
 
-## What a notification looks like
+---
 
-With `notify.lang: en`:
+## Table of Contents
 
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [Notification Preview](#notification-preview)
+- [Coverage](#coverage)
+- [Filter Rules](#filter-rules)
+- [Delivery Channels](#delivery-channels)
+- [Configuration & Networking](#configuration--networking)
+- [Production Deployment](#production-deployment)
+- [Reliability & State](#reliability--state)
+- [Development](#development)
+- [Disclaimer](#disclaimer)
+- [License](#license)
+
+---
+
+## Key Features
+
+- ⚡️ **Near Real-time Monitoring**: Tracks 3 distinct event kinds: new listings, price drops, and delistings. Polls every 120s, the floor imposed by the CDN's cache TTL — see [Request Frequency](#request-frequency--cdn-caching).
+- 🎯 **Precise Spec Filtering**: Filter by model, chip (`M2`, `M3`, `M4 Pro`, `M4 Max`, etc.), CPU/GPU core counts, memory, storage capacity, colour, release year, and price range.
+- 📱 **Multi-channel Delivery**: Built-in Bark support and a generic webhook (ready for Telegram, Discord, Feishu, WeCom, DingTalk, ServerChan, etc.). Automatic digest bundling prevents restock spam.
+- 🌍 **19 Regions Supported**: North America, Europe, East Asia and Oceania — full list under [Coverage](#coverage).
+- 🛡️ **Lightweight & Dependable**: Pure Go static binary, no database — state is one JSON file, and the container image is ~17MB. Features **silent initial baselines**, **fetch failures that never cause delistings**, and **round-wide rollback when delivery fails**.
+
+### Out of Scope (Explicit Boundaries)
+
+- **No inventory unit counts**: The official data source only signals presence ("in list = available"); stock quantities do not exist.
+- **No price history charts**: State only tracks current prices to detect price drops.
+- **No anti-bot evasion**: Listing pages are public static assets served via CDN; proxy pools and UA rotation are unnecessary.
+- **No auto-checkout or sniping**: This tool is strictly an alert daemon. Feature requests for automated purchasing will not be accepted.
+
+---
+
+## Quick Start
+
+### 1. Installation
+
+#### macOS (Recommended via Homebrew)
+
+```bash
+brew install --cask hh-io/tap/refurb-sentry
 ```
+
+Upgrade anytime with `brew upgrade --cask refurb-sentry`. The binary is not notarised by Apple; the cask automatically removes the quarantine attribute during installation to bypass Gatekeeper prompts.
+
+#### Linux / VPS (Pre-built Binaries)
+
+Download pre-built archives from the [latest release](https://github.com/hh-io/refurb-sentry/releases/latest) (supports Linux & macOS on amd64, arm64, armv7). The archive includes the binary, example config, and systemd/launchd service units:
+
+```bash
+tar xzf refurb-sentry_*_linux_amd64.tar.gz
+```
+
+#### Docker
+
+Prefer running containers? Use our official image: `ghcr.io/hh-io/refurb-sentry` (see [Production Deployment → Docker](#docker-compose)).
+
+<details>
+<summary>Install from source (Requires Go 1.26+)</summary>
+
+```bash
+go install github.com/hh-io/refurb-sentry/cmd/refurb-sentry@latest
+
+# Or clone and build (includes example configuration):
+git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
+go build -o refurb-sentry ./cmd/refurb-sentry
+```
+</details>
+
+---
+
+### 2. Configuration & Dry Run (3 Steps)
+
+```bash
+# 1. Create a local config and export your notification credential (e.g. Bark)
+cp configs/config.example.yaml configs/config.yaml
+export BARK_KEY=your_bark_device_key
+
+# 2. Inspect available filter dimensions and active product values right now
+./refurb-sentry -config configs/config.yaml -list-dims
+
+# 3. Dry-run one round: prints parsed notifications to stdout (no state written, no alerts sent)
+./refurb-sentry -config configs/config.yaml -once -dry-run
+
+# 4. Start as a persistent daemon
+./refurb-sentry -config configs/config.yaml
+```
+
+> [!IMPORTANT]
+> **The first run only records a baseline and sends zero notifications.** This prevents hundreds of pre-existing listings from flooding your device. Notifications will begin from the second round onward when actual changes occur.
+
+---
+
+### 3. CLI Flags
+
+| Flag | Description |
+|---|---|
+| `-config` | Path to configuration file (default: `configs/config.yaml`) |
+| `-once` | Run a single round and exit |
+| `-dry-run` | Dry-run mode: prints notifications to stdout without modifying state or sending alerts |
+| `-list-dims` | Prints currently available dimensions and values for configured regions/categories |
+| `-version` | Print version information |
+
+---
+
+## Notification Preview
+
+### Single Price Drop Alert
+
+```text
 Price drop · US mac
 Refurbished 24-inch iMac Apple M4 Chip with 10-Core CPU and 10-Core GPU - Silver
 $2,134.80 → $1,779 (down $355.80, 16.7%)
@@ -41,146 +142,63 @@ Matched rule: iMac under 2k
 https://www.apple.com/shop/product/...
 ```
 
-When a single round produces more than `notify.digest_threshold` events
-(default 5), they are merged into one digest so a bulk restock doesn't flood
-your phone:
+### Digest Alert (Triggered when a round's changes exceed `notify.digest_threshold`, default 5)
 
-```
+```text
 Refurb watch · 6 listings / 2 price drops
 [Listed] US Refurbished Mac mini Apple M4 chip $499
 [Price drop] US Refurbished 14-inch MacBook Pro $1,999 → $1,799
 ...
 ```
 
-## What it does
-
-- **Three event kinds**: new listing, price drop, delisting
-- **Spec filtering**: model, memory, storage, screen size, release year, colour,
-  chip, CPU/GPU core count, price range
-- **Delivery**: Bark, or a generic webhook (works with Telegram, Discord,
-  Feishu/Lark, Server 酱, anything that takes a JSON POST)
-
-## What it does not do
-
-- **No "units left in stock."** The data source only says "present in the list =
-  available"; there is no quantity anywhere.
-- **No price history charts.** State keeps the current price only, to detect drops.
-- **No anti-bot evasion.** See [Request frequency](#request-frequency) — this
-  source doesn't need any.
-- **No auto-checkout, sniping or bulk buying.** Feature requests for those are
-  not accepted.
+---
 
 ## Coverage
 
-**19 regions**: AU BE CA CH CN DE ES FR HK IE IT JP KR NL NZ SG TW UK US
+- **19 Regions**: `AU` `BE` `CA` `CH` `CN` `DE` `ES` `FR` `HK` `IE` `IT` `JP` `KR` `NL` `NZ` `SG` `TW` `UK` `US`
+- **8 Categories**: `mac` `ipad` `iphone` `watch` `airpods` `appletv` `homepod` `accessories`
 
-**8 categories**: `mac` `ipad` `iphone` `watch` `airpods` `appletv` `homepod` `accessories`
+> [!NOTE]
+> **The region × category matrix is sparse** (not every combination exists on Apple's site):
+> - `CN` and `HK` have no `iphone` or `appletv` stores (requests return HTTP 404).
+> - `US` returns HTTP 200 for `appletv`, `airpods`, and `homepod`, but the page carries no catalog items.
+>
+> Unavailable combinations are checked during initial startup and fail loudly to avoid partial baselines. Note that `MX` and `IN` do not have refurbished stores.
 
-**The region × category matrix is sparse** — not every combination exists:
+---
 
-- CN and HK have no `iphone` or `appletv`; those URLs return 404.
-- US returns 200 for `appletv`, `airpods` and `homepod`, but the page carries no
-  product data.
+## Filter Rules
 
-On the first run every configured combination is validated up front, and an
-unavailable one fails loudly instead of leaving a partial baseline behind.
-MX and IN have no refurbished store at all (404) — don't add them.
+### 1. Discover Active Dimensions
 
-## Quick start
-
-### Install
-
-On macOS, via Homebrew:
-
-```bash
-brew install --cask hh-io/tap/refurb-sentry
-```
-
-`brew upgrade --cask refurb-sentry` from then on. The binary is not signed or
-notarised by Apple, so the cask strips the quarantine attribute on install —
-without that, the first run gets stopped by Gatekeeper.
-
-Otherwise, grab the archive for your platform from the
-[latest release](https://github.com/hh-io/refurb-sentry/releases/latest) — macOS
-and Linux, amd64 / arm64 / armv7. It ships the binary, the example config and
-the systemd / launchd unit files:
-
-```bash
-tar xzf refurb-sentry_*_darwin_arm64.tar.gz
-```
-
-With a Go 1.26+ toolchain you can install from source instead:
-
-```bash
-go install github.com/hh-io/refurb-sentry/cmd/refurb-sentry@latest
-```
-
-or clone and build, which also gets you the example config and unit files:
-
-```bash
-git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
-go build -o refurb-sentry ./cmd/refurb-sentry
-```
-
-Prefer not to install anything locally? There's a container image — see
-[Deployment → Docker](#docker).
-
-### Run
-
-```bash
-cp configs/config.example.yaml configs/config.yaml
-export BARK_KEY=your_bark_device_key
-
-# See which dimensions and values the categories you care about expose right now
-./refurb-sentry -config configs/config.yaml -list-dims
-
-# One round, printing notifications to the terminal instead of sending them
-./refurb-sentry -config configs/config.yaml -once -dry-run
-
-# Run for real
-./refurb-sentry -config configs/config.yaml
-```
-
-**The first run only records a baseline and sends nothing** — otherwise several
-hundred already-listed products would land on your phone at once. Changes are
-reported from the second round on.
-
-### Flags
-
-| Flag | Meaning |
-|---|---|
-| `-config` | Config file path, default `configs/config.yaml` |
-| `-once` | Run a single round and exit |
-| `-dry-run` | Send nothing, write no state, print notifications to stdout |
-| `-list-dims` | Print the filter dimensions and values currently available per region/category |
-| `-version` | Print version |
-
-## Writing filter rules
-
-Which dimensions exist **depends on the category** (mac has memory/capacity,
-watch has case size/material), so look them up first:
+Available dimensions vary by category (e.g. `mac` has memory/capacity, `watch` has case size/material). Inspect active values directly from Apple before writing rules:
 
 ```console
 $ ./refurb-sentry -config configs/config.yaml -list-dims
 
 ===== US/mac(209 件)=====
-  refurbClearModel       (Models)   display, imac, macbookair, macbookneo, macbookpro
+  refurbClearModel       (Models)   display, imac, macbookair, macbookneo, macbookpro, macmini, macstudio
   dimensionScreensize    (Sizes)    13inch, 14inch, 15inch, 16inch, 24inch, 27inch
   dimensionRelYear       (Release Year) 2022, 2023, 2024, 2025, 2026
-  dimensionColor         (Finish)   blue, midnight, silver, spaceblack, starlight, ...
-  tsMemorySize           (Memory)   128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 8gb
+  dimensionColor         (Finish)   blue, midnight, silver, space_gray, spaceblack, starlight, ...
+  tsMemorySize           (Memory)   128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb
   dimensionCapacity      (Capacity) 1tb, 256gb, 2tb, 4tb, 512gb, 8tb
-  chips                  (芯片)       A18 Pro, M3, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro
+  chips                  (芯片)   A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro
 ```
 
-The labels in parentheses come from the Apple store page itself, so they arrive
-in that region's language; `chips` is computed by this tool and labelled in Chinese.
-The keys and values on either side are stable identifiers — those are what you
-put in a rule:
+The labels in parentheses come from the Apple store page itself, so they arrive in
+that region's language. `chips` is computed by this tool rather than read off the
+page, so it is always labelled `芯片` — as is the `件` in the header, which is part
+of the operator-facing console output. The keys and values on either side are
+stable identifiers, and those are what go into a rule.
+
+### 2. Rule Example
+
+Add filter rules under the `rules` key in `configs/config.yaml`:
 
 ```yaml
 rules:
-  - name: MacBook Pro high-end
+  - name: High-end MacBook Pro
     regions: [US]
     categories: [mac]
     dimensions:
@@ -190,82 +208,84 @@ rules:
     chips: [M4 Pro, M4 Max, M5 Pro, M5 Max]
     min_cpu_cores: 12
     max_price: 2500
+
+  - name: Budget Mac mini
+    regions: [US]
+    categories: [mac]
+    dimensions:
+      refurbClearModel: [macmini]
+    max_price: 600
 ```
 
-### Rule fields
+### 3. Rule Fields Reference
 
-| Field | Type | Meaning |
+| Field | Type | Description |
 |---|---|---|
-| `name` | string | Shown in the notification's "matched rule" line; defaults to `rule#N` |
-| `regions` | list | Restrict to these regions; empty means no restriction |
-| `categories` | list | Restrict to these categories; empty means no restriction |
-| `dimensions` | map | Structured dimensions from the page; keys vary by category, use `-list-dims` |
-| `chips` | list | Chip model, e.g. `M4 Pro`. Parsed from the title — see below |
-| `min_cpu_cores` | int | Minimum CPU cores. Parsed from the title |
-| `min_gpu_cores` | int | Minimum GPU cores. Parsed from the title |
-| `title_match` | regex | Matched against the **normalised** title; plain ASCII hyphens are fine |
-| `min_price` | number | Lower bound, inclusive. `0` means no bound |
-| `max_price` | number | Upper bound, inclusive. `0` means no bound |
+| `name` | string | Rule label displayed in the notification's "Matched rule" line (defaults to `rule#N`) |
+| `regions` | list | Target region codes; empty matches all configured regions |
+| `categories` | list | Target categories; empty matches all configured categories |
+| `dimensions` | map | Page dimensions (keys vary by category; check with `-list-dims`) |
+| `chips` | list | Chip models (e.g. `M4 Pro`), parsed from product titles |
+| `min_cpu_cores` | int | Minimum CPU core count, parsed from titles |
+| `min_gpu_cores` | int | Minimum GPU core count, parsed from titles |
+| `title_match` | regex | Regular expression matched against **normalised** title text |
+| `min_price` | number | Lower price limit (inclusive); `0` means no limit |
+| `max_price` | number | Upper price limit (inclusive); `0` means no limit |
 
-**Matching semantics**: rules are OR'd (any match sends); fields within one rule
-are AND'ed; values within one field are OR'd; an omitted field constrains nothing;
-values are case-insensitive.
+**Evaluation Semantics**:
+- Rules are joined by **OR** (matching any rule triggers notification).
+- Fields within a single rule are joined by **AND**.
+- Values within a single field list are joined by **OR**; omitted fields impose no constraint; matching is case-insensitive.
+- **Strict matching policy**: Missing dimensions on a product do not match; unparseable core counts satisfy no `min_*_cores` threshold (safe-by-default to prevent false matches).
+- Filtering occurs strictly at **notification time**. The underlying state stores all products, so loosening rules later will not cause previously-seen items to be flagged as new listings.
 
-Two deliberately strict choices: a product **missing** a dimension the rule asks
-for does not match, and a core count that **could not be parsed** satisfies no
-`min_*_cores` bound. Better to miss a notification than to treat unknown as
-qualifying.
+### 4. Chip and Core Count Parsing
 
-Rules filter **only at send time**. The state file always tracks every product,
-so when you later loosen a rule, products that were already listed won't be
-reported as new arrivals.
+Model, memory, and capacity come from structured page fields and are reliable. But
+**chip models and CPU/GPU core counts exist only inside the product title**, and the
+word order differs completely between localised stores:
 
-### Chip and core count are the one fragile part
-
-Model, memory and capacity come from structured fields on the page and are
-reliable. But **chip model and CPU/GPU core counts exist only inside the product
-title**, and the word order differs completely between localised stores:
-
-```
+```text
 US  Refurbished 14-inch MacBook Pro Apple M5 Pro chip with 12-Core CPU and 16-Core GPU
 FR  Mac mini reconditionné avec puce Apple M4, CPU 10 cœurs, GPU 10 cœurs
 JP  14インチMacBook Pro [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ
 ```
 
-The parser does not dispatch a regex per region. It decouples the chip *keyword*
-from the *model* and accepts both word orders, so adding a region usually needs no
-parser change. Measured across 2000+ real products in all 19 regions: **chip 100%,
-core count 95%** (the remaining 5% are titles that simply don't state core counts).
+The parser does not dispatch a regex per region: it decouples the chip *keyword* from
+the *model* and accepts both word orders, so adding a region usually needs no parser
+change. Measured across 2,000+ real products in all 19 regions: **chip 100%, core
+count 95%** (the remaining 5% are titles that simply omit core counts in Apple's copy).
 
 Apple also mixes regular spaces, non-breaking spaces (U+00A0) and several Unicode
-hyphens within a single page, so titles are normalised before matching —
-`title_match` runs against the normalised text too.
+hyphens (U+2011, U+2014) within a single page — the Spanish, Italian and French stores
+separate `M4 Pro` with U+00A0 while other models on the same page use a plain space.
+Titles are therefore normalised before matching, and `title_match` runs against the
+normalised text too, so plain ASCII spaces and hyphens are all a regex needs.
 
-Even so, a copy change on Apple's side can break this. When parsing fails the
-product is kept (chip recorded as unknown), but rules using `chips`,
-`min_cpu_cores` or `min_gpu_cores` will skip it. If notifications go missing,
-check whether the `chips` line in `-list-dims` still looks sane.
+Even so, a copy change on Apple's side can break this. When parsing fails the product
+is still tracked (chip recorded as unknown), but rules using `chips`, `min_cpu_cores`
+or `min_gpu_cores` will skip it. If notifications go missing, run
+`./refurb-sentry -config configs/config.yaml -list-dims` and check whether the `chips`
+line still looks sane.
 
-## Delivery channels
+---
 
-### Bark
+## Delivery Channels
+
+### 1. Bark (iOS)
 
 ```yaml
 channels:
   - type: bark
     device_key: ${BARK_KEY}
-    server: https://api.day.app   # point at your own server here
-    sound: ""                     # empty means Bark's default
+    server: https://api.day.app   # Point to your self-hosted instance if applicable
+    sound: ""                     # Empty uses Bark's default sound
     icon: https://raw.githubusercontent.com/hh-io/refurb-sentry/main/assets/icon.png
 ```
 
-`icon` is what shows up on the left of the notification. Any publicly reachable
-bitmap works — iOS ignores SVG. Leave it empty to keep Bark's own icon.
+### 2. Telegram / Discord (Generic Webhook)
 
-### Telegram / Discord / anything else
-
-The generic webhook builds its body from a Go template; `{{json .X}}` escapes
-values safely:
+Rendered via Go templates with safe `{{json .X}}` escaping:
 
 ```yaml
 channels:
@@ -276,48 +296,33 @@ channels:
       {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}}}
 ```
 
-### Feishu / WeCom / DingTalk / ServerChan
+### 3. Feishu / WeCom / DingTalk / ServerChan Guide
 
-These are just a different `url` and `body` template too — no extra code.
-`configs/config.example.yaml` ships four ready-to-enable blocks; the gist:
+Ready-to-use template snippets are included in `configs/config.example.yaml`. Keep these platform nuances in mind:
 
-| Channel | Payload | Notes |
-| --- | --- | --- |
-| Feishu (Lark) bot | `{"msg_type":"text","content":{"text":…}}` | See the security note below |
-| WeCom group bot | `{"msgtype":"markdown","markdown":{"content":…}}` | `\n` breaks lines; 4096 bytes max |
-| DingTalk bot | `{"msgtype":"text","text":{"content":…}}` | text, not markdown — see below |
-| ServerChan Turbo | `title=…&desp=…` form | Takes a form, not JSON |
-
-> [!IMPORTANT]
-> **The signed ("加签") security mode of Feishu and DingTalk is not supported.**
-> Both want an HmacSHA256 signature computed from a secret and passed along as
-> `timestamp` / `sign`; the generic webhook only renders templates, it does not
-> sign anything. Pick "custom keywords" or the IP allowlist when you create the bot.
+| Channel | Format | Key Requirements & Pitfalls |
+|---|---|---|
+| **Feishu (Lark) Bot** | `{"msg_type":"text","content":{"text":…}}` | ⚠️ **Signature verification is not supported**. Use "Custom Keywords" or "IP Allowlist". |
+| **WeCom Bot** | `{"msgtype":"markdown","markdown":{"content":…}}` | Native `\n` line breaks; max 4,096 bytes per message. |
+| **DingTalk Bot** | `{"msgtype":"text","text":{"content":…}}` | ⚠️ **HMAC signature ("加签") is not supported**. Use "Custom Keywords" or "IP Allowlist". Prefer `text` type over markdown. |
+| **ServerChan Turbo** | `title=…&desp=…` form | Uses URL-encoded forms. Set `Content-Type: application/x-www-form-urlencoded` and escape with `{{urlquery}}`. |
 
 > [!WARNING]
-> **All four return HTTP 200 on business-level failures**, putting the error in
-> the response body — DingTalk's `{"errcode":310000,"errmsg":"keywords not in
-> content"}`, Feishu's `{"code":19024}`. The generic webhook only checks the HTTP
-> status code, so those failures count as delivered, the baseline advances, and
-> **those events are lost for good** — the log just says the push succeeded.
-> Once configured, send a real one and confirm it arrives on your phone rather
-> than trusting the log, especially with custom keywords turned on.
+> **HTTP 200 False-Success Risk**:
+> Feishu, DingTalk, and similar enterprise bots **return HTTP 200 even when delivery fails** due to keyword mismatches or permission errors (error codes reside inside the response body). Because generic webhooks rely on HTTP status codes, these rejections are treated as successful, and **events will be permanently lost**.
+> - Always verify delivery by sending a real test notification to your device. Do not rely solely on logs.
+> - When using custom keywords, embed your keyword directly into the message body template:
+>   ```yaml
+>   body: |
+>     {"msg_type":"text","content":{"text":{{json (printf "refurb-sentry\n%s" .Text)}}}}
+>   ```
 
-If you go with custom keywords, note that notification titles are dynamic text
-like `Listed · CN mac` — there is no word guaranteed to appear. Put the keyword
-straight into the body instead:
+DingTalk uses `text` rather than `markdown` because it renders standard markdown,
+where a single newline does not break a line — markdown would mean padding every line
+with two trailing spaces. WeCom's markdown has no such quirk.
 
-```yaml
-    body: |
-      {"msg_type":"text","content":{"text":{{json (printf "refurb-sentry\n%s" .Text)}}}}
-```
-
-DingTalk uses `text` rather than `markdown` here: it renders standard markdown,
-where a single newline does not break a line, so markdown would mean padding
-every line with two trailing spaces. WeCom's markdown has no such quirk.
-
-ServerChan takes a form, so override `Content-Type` explicitly and escape with
-`text/template`'s built-in `urlquery` instead of `json`:
+ServerChan takes a form rather than JSON, so override `Content-Type` explicitly and
+escape with `text/template`'s built-in `urlquery` instead of `json`:
 
 ```yaml
   - type: webhook
@@ -330,19 +335,22 @@ ServerChan takes a form, so override `Content-Type` explicitly and escape with
 ```
 
 A newer SendKey starting with `sctp` uses a different host:
-`https://<uid>.push.ft07.com/send/<SendKey>.send`, where `uid` is the run of
-digits between `sctp` and `t` in the SendKey.
+`https://<uid>.push.ft07.com/send/<SendKey>.send`, where `uid` is the run of digits
+between `sctp` and `t` in the SendKey.
 
-### Template fields
+### 4. Template Variables Reference
 
-Message-level: `.Title` `.Body` `.URL` `.Group` `.Text` `.Count` `.Events`
+- **Message-level**: `.Title`, `.Body`, `.URL`, `.Group`, `.Text` (full text), `.Count`, `.Events` (every event in the round).
+- **Product-level** (top-level fields reflect the first event; also available on each item in `.Events`):
+  - `.Kind`: Event kind enum (`listed` / `price_drop` / `delisted`, locale-neutral), so a template can pick its own wording in any language regardless of `notify.lang`.
+  - `.KindLabel`: the localised form of `.Kind` (`Listed`, `Price drop`, `Delisted`).
+  - `.Region`, `.Category`, `.PartNumber`, `.ProductTitle`.
+  - `.Currency`: ISO code, e.g. `USD` — not the symbol. `.Price` is formatted for display; `.PriceCents` is the integer, for arithmetic or comparisons.
+  - `.OldPrice`, `.OldPriceCents`: **set only on `price_drop` events**, and they hold the price this tool last saw. Apple never exposes a list price, so this is not an official MSRP.
+  - `.Rules`: names of the rules this product matched.
 
-Per-product (top level = the first event; also available on each `.Events` entry):
-`.Kind` `.KindLabel` `.Region` `.Category` `.PartNumber` `.ProductTitle`
-`.Currency` `.Price` `.PriceCents` `.OldPrice` `.OldPriceCents` `.Rules`
-
-`.Events` carries **every** event in the round, digests included, so a template
-can lay out its own list instead of reusing the built-in body:
+`.Events` carries **every** event in the round, digests included, so a template can lay
+out its own list instead of reusing the built-in body:
 
 ```yaml
     body: |
@@ -351,184 +359,125 @@ can lay out its own list instead of reusing the built-in body:
          "description":{{json $e.Price}}}{{end}}]}
 ```
 
-`.Kind` is language-neutral (`listed` / `price_drop` / `delisted`), so a webhook
-template can dispatch its own wording in any language regardless of
-`notify.lang`. `.KindLabel` is the localised form.
+---
 
-## Notification language
+## Configuration & Networking
+
+### Notification Language
 
 ```yaml
 notify:
   lang: en    # en | zh-CN (default)
 ```
 
-Affects notification text only — event labels, the price-drop line, the digest
-header and the `-dry-run` console output. Punctuation follows the language
-(half-width for English, full-width for Chinese) and English counts are
-pluralised (`1 price drop` / `2 price drops`).
+Affects notification text only — event labels, the price-drop line, the digest header
+and the `-dry-run` console output. Punctuation follows the language (half-width for
+English, full-width for Chinese) and English counts are pluralised (`1 price drop` /
+`2 price drops`).
 
-Two things it does **not** change:
+Two things it does **not** change: **log and error messages**, which stay Chinese
+because they target whoever runs the process; and **product titles**, which arrive in
+the language of the store being watched. That is why `lang: en` with `regions: [CN]`
+gives an English shell around Chinese titles — expected, not a bug.
 
-- **Log and error messages**, which stay Chinese. They target whoever runs the
-  process, and translating them doubles the maintenance for no gain.
-- **Product titles**, which come from the Apple store page in that region's
-  language. This is why `lang: en` with `regions: [CN]` yields English framing
-  around Chinese titles — expected, not a bug.
+An unrecognised `lang` is a fatal startup error, not a silent fallback to the default.
 
-An unrecognised `lang` is a fatal error rather than a silent fallback.
+### Environment Variables & Secrets
 
-## Config and secrets
+- Supports `${VAR}` and `${VAR:-default}` syntax. **Unset variables without defaults cause immediate startup failure**, avoiding silent errors.
+- Channels configured with `enabled: false` skip variable expansion entirely.
+- Store credentials in `.env` or system environment variables (`.env`, `configs/config.yaml`, and `data/` are gitignored).
+- Overridable via environment variables: `REFURB_INTERVAL`, `REFURB_REGIONS`, `REFURB_CATEGORIES`, `REFURB_PROXY`, `REFURB_STATE_PATH`, `REFURB_LOG_LEVEL`, `REFURB_DIGEST_THRESHOLD`.
 
-`${VAR}` in the config expands from the environment; `${VAR:-fallback}` supplies a
-default. **Referencing an unset variable with no default is a fatal error** rather
-than a silent empty string that makes delivery quietly fail. Channels with
-`enabled: false` skip expansion entirely, so you don't need to set variables for
-channels you don't use.
+### Request Frequency & CDN Caching
 
-Keep secrets in the environment or a `.env` file, not in the config. `data/`,
-`configs/config.yaml` and `.env` are already in `.gitignore`.
+The Apple refurbished listing page is a public static asset with `cache-control: public, max-age=120, s-maxage=120`. All requests hit global edge CDNs (~50ms latency).
 
-A few frequently-changed settings can be overridden directly from the environment:
-`REFURB_INTERVAL` `REFURB_REGIONS` `REFURB_CATEGORIES` `REFURB_PROXY`
-`REFURB_STATE_PATH` `REFURB_LOG_LEVEL` `REFURB_DIGEST_THRESHOLD`
+- **The default 120s interval is a physical CDN floor**: Polling faster only fetches identical cached responses; the daemon warns if an interval lower than 120s is specified.
+- No anti-bot measures: A stable, real-browser User-Agent is used. UA rotation and proxy pools are unnecessary.
+- Serial requests with 1–3s randomized jitter; 429/503 responses trigger exponential backoff adhering to `Retry-After`.
 
-## Request frequency
+### Proxy & Currency Guard
 
-The refurbished listing page is a **public static page** served with
-`cache-control: public, max-age=120, s-maxage=120`. Requests hit the CDN edge
-(~50ms measured) and never reach Apple's origin. `robots.txt` does not disallow
-`/shop/refurbished`.
+Configure proxies via `http.proxy` (supports `http://`, `https://`, `socks5://`). Proxies serve to **fix your egress region** (Apple geo-routes by IP).
 
-Therefore:
+> [!CAUTION]
+> The built-in currency guard halts execution if fetched product currency does not match the target region. However, **BE, DE, ES, FR, IE, IT, and NL all use EUR**. If your proxy exits in the wrong Eurozone country, the currency check cannot detect the mismatch. When monitoring multiple European stores, verify your proxy egress IP.
 
-- **The default 120s interval is a floor, not a knob.** The CDN caches for 120
-  seconds; polling faster just fetches the same copy again. The program warns if
-  you configure less.
-- **No** TLS fingerprint spoofing, UA rotation or proxy pools. The UA is a fixed,
-  real browser string — a stable UA looks *less* like automation than a rotating one.
-- Requests within a round are issued serially, with a random 1–3s pause between them.
-- 429/503 triggers exponential backoff and honours `Retry-After`.
+---
 
-A proxy (`http.proxy`, http/https/socks5) exists to **fix your exit region** —
-Apple decides the store by IP — not to hide anything. If fetched products report a
-currency that doesn't match the target region, the program errors out instead of
-mixing another country's data into the state file.
+## Production Deployment
 
-> [!WARNING]
-> That guard only works when the currencies actually differ. **BE, DE, ES, FR, IE,
-> IT and NL all use EUR**, so a proxy exiting in the wrong Eurozone country passes
-> the check while serving another country's catalogue. When watching several
-> Eurozone regions at once, verify the exit IP yourself.
+### Docker Compose
 
-## Deployment
-
-### Docker
-
-Images are published to `ghcr.io/hh-io/refurb-sentry` for `linux/amd64` and
-`linux/arm64`, alpine-based, around 17MB.
+Images are published at `ghcr.io/hh-io/refurb-sentry` for `linux/amd64` and `linux/arm64` (~17MB, Alpine-based).
 
 ```bash
-cp configs/config.example.yaml configs/config.yaml   # set your scope and rules
-echo 'BARK_KEY=your-device-key' > deploy/.env
+# 1. Setup config and secret
+cp configs/config.example.yaml configs/config.yaml
+echo 'BARK_KEY=your_bark_key' > deploy/.env
+
+# 2. Start container
 docker compose -f deploy/docker-compose.yml up -d
-```
 
-Dry-run one round first to see what it would push:
-
-```bash
+# 3. Dry-run verification
 docker compose -f deploy/docker-compose.yml run --rm refurb-sentry -once -dry-run
 ```
 
-Two things to watch out for:
+> [!TIP]
+> Two things to watch out for:
+> - **Relative paths in the compose file resolve against `deploy/`**, not the directory you run the command from. The mounted `../configs/config.yaml` is the one in the repo.
+> - **The container runs under non-root `uid 1000`.** State lives in a Docker named volume by default, which Docker initialises with the ownership baked into the image, so no chown is needed. Switch to a host bind mount and you must `chown 1000:1000` the host directory yourself, or `state.json` can't be written and every round rolls its baseline back.
 
-- **Relative paths in the compose file resolve against `deploy/`**, not the
-  directory you run the command from. The mounted `../configs/config.yaml` is
-  the one in the repo.
-- **The container runs as uid 1000.** State lives in a named volume by default,
-  which Docker initialises with the ownership baked into the image, so no chown
-  is needed. Switch to a bind mount and you have to `chown 1000:1000` the host
-  directory yourself, or `state.json` can't be written and every round rolls its
-  baseline back.
+### launchd / systemd (Persistent Daemons)
 
-### launchd / systemd
+Pre-configured service definitions are provided in `deploy/`:
+- **macOS**: Copy `deploy/com.refurb-sentry.plist` to `~/Library/LaunchAgents/` and load via `launchctl load ...`
+- **Linux**: Copy `deploy/refurb-sentry.service` to `/etc/systemd/system/` and run `systemctl enable --now refurb-sentry`
 
-Ready-made unit files live in `deploy/`:
-
-- **mac mini**: `com.refurb-sentry.plist` → `~/Library/LaunchAgents/`, `launchctl load`
-- **Linux VPS**: `refurb-sentry.service` → `/etc/systemd/system/`, `systemctl enable --now`
-
-Both restart automatically with a 30s backoff. On SIGTERM the program flushes
-state before exiting.
+Services automatically restart with a 30s backoff on crash and flush state cleanly on `SIGTERM`.
 
 <details>
-<summary>Why not GitHub Actions or Cloudflare Workers</summary>
+<summary>Why not GitHub Actions or Cloudflare Workers?</summary>
 
-- **GitHub Actions**: cron granularity bottoms out at 5 minutes, and GitHub
-  explicitly warns that runs may be delayed or dropped under load; scheduled
-  workflows in public repos are disabled after 60 days of inactivity; and you'd
-  have to commit state back into the repo.
-- **Cloudflare Workers**: the free tier caps Cron Trigger CPU time at 10ms, and
-  parsing one mac category page (1.3MB of HTML, 200+ products) blows past that —
-  it needs a paid plan. Exit IPs are also spread across global datacenters, which
-  makes region detection unpredictable.
-
+- **GitHub Actions**: Minimum 5-minute cron granularity, frequent queue delays under load, automatic deactivation after 60 days of inactivity, and tedious git commits required for state persistence.
+- **Cloudflare Workers**: Free tier CPU limits (10ms) cannot parse large Mac catalog pages (>1.3MB HTML, 200+ products); dynamic edge routing causes region detection to drift unpredictably.
 </details>
 
-## State and reliability
+---
 
-State lives in `data/state.json` by default and records each product's part number,
-title, current price, dimensions and first/last seen timestamps. It's replaced
-atomically (temp file + rename), so a power cut or a `kill` never leaves a
-truncated file. To rebuild the baseline, delete it — the next start re-seeds
-silently.
+## Reliability & State
 
-Three deliberate design choices, all aimed at never losing or spamming notifications:
+State defaults to `data/state.json`, storing part numbers, titles, current prices, dimensions, and first/last seen timestamps. Updates use atomic writes (temporary file + atomic rename) to guard against corruption during power cuts or crashes. To rebuild the baseline from scratch, delete the file — the next start re-seeds silently.
 
-- **The baseline is tracked per region/category.** Add a region or category to a
-  running instance and the new scope seeds its own baseline silently instead of
-  reporting hundreds of existing products as new. Likewise, a region that failed to
-  fetch on the first round is not wrongly marked as baselined.
-- **A fetch failure never causes a delisting.** Any error skips that category
-  without touching state, and an empty result must repeat for several rounds before
-  it's believed.
-- **If any change reaches no channel at all, the entire round is rolled back.**
-  Those changes are regenerated and retried next round rather than being swallowed.
-  The in-memory baseline is snapshotted before the diff and restored on failure, so
-  a long-running process genuinely retries instead of merely skipping the disk write.
-  Because the rollback is round-wide, changes that *were* delivered in that round are
-  sent once more on the retry — a duplicate notification beats a lost one. Retrying is
-  capped: some failures never recover (a body past Telegram's length limit, a webhook
-  that always returns 400), and retrying those forever would re-push the same batch
-  every interval while the baseline never advances. After several consecutive
-  rollbacks the round is forced through and the lost events are logged at ERROR.
-  A change that reached at least one channel counts as delivered; the channels that
-  failed lose that batch, and it's logged at ERROR.
+Three reliability principles prevent missed alerts or alert storms:
+
+1. **Independent per-scope baselines**: Baseline state is tracked per `[region/category]`. Adding a new scope to a running instance baselines silently without triggering alerts for pre-existing stock. Network failures during initial fetch do not mark scopes as baselined.
+2. **Fetch failures never cause delistings**: Any error skips that category without touching state. An empty result must repeat for several consecutive rounds before it is believed.
+3. **Round-wide rollback when an event reaches nothing**: If any event in a round reaches **no channel at all**, the whole round is rolled back. The in-memory baseline is snapshotted before the diff and restored on failure, so a long-running process genuinely retries rather than merely skipping the disk write, and those events are regenerated next round. Because the rollback is round-wide, events that *were* delivered get sent once more on the retry — a duplicate notification beats a lost one. An event that reached at least one channel counts as delivered; the channels that failed lose that batch, logged at ERROR. Retrying is capped at 5 consecutive rollbacks: some failures never recover (a body past Telegram's length limit, a webhook that always returns 400), and retrying those forever would re-push the same batch every interval while the baseline never advances. Past the cap the round is forced through and the lost events are logged at ERROR.
+
+---
 
 ## Development
 
 ```bash
+# Run unit tests, vet, and format checks
 go test ./... && go vet ./... && gofmt -l .
 ```
 
-Adding a region is one row in the table in `internal/apple/regions.go`; the startup
-check verifies it's actually reachable. A new currency also needs an entry in the
-symbol table in `internal/apple/model.go`, or prices degrade to `XXX 999`.
+- **Adding a region**: Add a row to the table in `internal/apple/regions.go`; the startup check verifies it is actually reachable. A new currency also needs an entry in the symbol table in `internal/apple/model.go`, or prices degrade to `XXX 999`.
+- Automated CI validates tests and formatting on every push. Pushing a `v*` tag triggers GoReleaser to publish cross-platform binaries and container images.
 
-The same three checks run in CI on every push and pull request. Pushing a `v*`
-tag builds the cross-platform archives with GoReleaser and publishes them as a
-GitHub release.
+---
 
 ## Disclaimer
 
-This project is not affiliated with, sponsored by, or endorsed by Apple Inc., and
-is not an Apple product. Apple, MacBook, iPad and Apple Watch are trademarks of
-Apple Inc.
+This project is not affiliated with, sponsored by, or endorsed by Apple Inc., and is not an official Apple product. Apple, MacBook, iPad, and Apple Watch are trademarks of Apple Inc.
 
-It reads only the **publicly accessible** refurbished listing pages, as an aid to
-personal purchasing decisions. The product information it retrieves (titles,
-prices, image links) is copyright Apple Inc. Comply with the laws of your
-jurisdiction and Apple's terms of use; you use this at your own risk.
+This tool only reads publicly accessible Apple Certified Refurbished store pages to assist personal purchasing decisions. Product information (titles, prices, images) is copyright Apple Inc. Use at your own risk and comply with local laws and Apple's terms of service.
+
+---
 
 ## License
 
-MIT
+[MIT](LICENSE)
