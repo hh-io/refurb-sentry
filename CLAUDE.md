@@ -72,4 +72,10 @@ go test ./... && go vet ./... && gofmt -l .
 README 是中英两版(`README.md` 英文、`README.zh-CN.md` 中文),内容对等、顶部互链。
 改动其中一版的事实性内容(参数、规则字段、地区/分类、行为约束)必须同步另一版——
 只改一版会留下一份静默过期的文档,而这个项目的可信度正建立在"这些都是实测结论"上。
-通知正文与日志目前是硬编码中文,英文 README 已如实声明这一点;若将来做输出本地化,记得同步删掉那段声明。
+推送文案按语言集中在 `internal/notify/lang.go` 的 `phrases` 表里,由 `notify.lang` 选择(zh-CN / en)。
+**日志与错误信息一律保持中文**,不要顺手翻译:那是给运维和开发者看的,译了没有收益、维护成本翻倍。
+加语言时只需往表里加一项。注意漏填字段**不会**编译报错,只会得到空串并静默推出残缺文案——
+`TestAllLanguagesDefineEveryPhrase` 与 `TestEveryLanguageRendersAllKinds` 专门防这个。
+标点也属于文案的一部分——中文用全角、英文用半角,只换词不换标点会让英文输出很别扭。
+`EventKind` 只保留语言中立的 `listed` / `price_drop` / `delisted`;
+展示用的 label 属于 notify 层,不要再往 state 里塞 `Label()` 之类的方法。

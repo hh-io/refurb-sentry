@@ -221,3 +221,31 @@ func TestRegionCategoryCaseInsensitive(t *testing.T) {
 		t.Errorf("分类应归一化为小写: %v", cfg.Categories)
 	}
 }
+
+// 拼错的 lang 必须报错:静默回退默认语言会让人以为设置已生效。
+func TestInvalidNotifyLangIsFatal(t *testing.T) {
+	p := writeConfig(t, `
+regions: [CN]
+categories: [mac]
+notify:
+  lang: jp
+`)
+	_, _, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "lang") && !strings.Contains(err.Error(), "语言") {
+		t.Fatalf("应报出未知语言,实际: %v", err)
+	}
+}
+
+func TestNotifyLangDefaultsToChinese(t *testing.T) {
+	p := writeConfig(t, `
+regions: [CN]
+categories: [mac]
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.Lang != "zh-CN" {
+		t.Errorf("未配置时应保持中文以免升级后推送换语言,实际 %q", cfg.Notify.Lang)
+	}
+}

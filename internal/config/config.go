@@ -7,6 +7,7 @@ import (
 
 	"github.com/hh-io/refurb-sentry/internal/apple"
 	"github.com/hh-io/refurb-sentry/internal/filter"
+	"github.com/hh-io/refurb-sentry/internal/notify"
 )
 
 // Duration 让 YAML 里可以直接写 "120s"、"2m" 这类可读时长。
@@ -55,6 +56,9 @@ type HTTPConfig struct {
 
 type NotifyConfig struct {
 	Group string `yaml:"group"`
+	// Lang 只影响推送文案(zh-CN / en);日志与错误信息始终是中文。
+	// 商品标题的语言由抓取的地区决定,不受这里影响。
+	Lang string `yaml:"lang"`
 	// DigestThreshold:一轮内匹配事件超过此数量就合并为一条摘要,
 	// 避免 Apple 批量上架时几十条推送刷屏。
 	DigestThreshold int `yaml:"digest_threshold"`
@@ -95,7 +99,7 @@ func Default() Config {
 			DelayMin:   Duration(1 * time.Second),
 			DelayMax:   Duration(3 * time.Second),
 		},
-		Notify: NotifyConfig{Group: "refurb-sentry", DigestThreshold: 5},
+		Notify: NotifyConfig{Group: "refurb-sentry", DigestThreshold: 5, Lang: string(notify.DefaultLang)},
 	}
 }
 
@@ -133,6 +137,12 @@ func (c *Config) Validate() (warnings []string, err error) {
 	if c.Notify.Group == "" {
 		c.Notify.Group = "refurb-sentry"
 	}
+	// 归一化后存回,让后续取用不必再关心大小写与空白。
+	lang, e := notify.ParseLang(c.Notify.Lang)
+	if e != nil {
+		return nil, e
+	}
+	c.Notify.Lang = string(lang)
 
 	if len(c.Regions) == 0 {
 		return nil, fmt.Errorf("regions 不能为空,可选:%v", apple.RegionCodes())

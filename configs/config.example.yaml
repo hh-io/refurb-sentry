@@ -34,6 +34,10 @@ http:
 
 notify:
   group: refurb-sentry
+  # 推送文案的语言:zh-CN(默认)或 en。只影响通知内容,日志始终是中文。
+  # 商品标题的语言由抓取的地区决定,不受这里影响——
+  # lang: en 配 regions: [CN] 会得到英文外壳 + 中文标题的混合体。
+  lang: zh-CN
   # 一轮内命中事件超过此数量时合并成一条摘要,避免 Apple 批量上架时刷屏。
   digest_threshold: 5
 
@@ -49,6 +53,12 @@ channels:
   # 通用 webhook:改 url / headers / body 即可对接 Telegram、飞书、Server 酱等。
   # 下面是 Telegram 的写法。body 是 text/template 模板,
   # {{json .X}} 会把值转义成合法的 JSON 字面量。
+  #
+  # .Events 是本轮全部事件,摘要消息里也是完整的,可以 range 出自己的格式:
+  #   {{range .Events}}{{.KindLabel}} {{.ProductTitle}} {{.Price}}
+  #   {{end}}
+  # .Kind 是语言中立的 listed / price_drop / delisted,
+  # 想完全自定义文案语言的话据它分派即可,不受 notify.lang 约束。
   - type: webhook
     name: telegram
     enabled: false

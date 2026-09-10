@@ -190,9 +190,46 @@ channels:
       {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}}}
 ```
 
-模板可用字段:`.Title` `.Body` `.URL` `.Group` `.Text` `.Kind` `.KindLabel` `.Count`
-`.Region` `.Category` `.PartNumber` `.ProductTitle` `.Currency` `.Price` `.PriceCents`
-`.OldPrice` `.OldPriceCents` `.Rules`(摘要消息里的商品字段取首条事件)。
+### 模板字段
+
+消息级:`.Title` `.Body` `.URL` `.Group` `.Text` `.Count` `.Events`
+
+商品级(顶层取首条事件,`.Events` 的每一项也有同样的字段):
+`.Kind` `.KindLabel` `.Region` `.Category` `.PartNumber` `.ProductTitle`
+`.Currency` `.Price` `.PriceCents` `.OldPrice` `.OldPriceCents` `.Rules`
+
+`.Events` 携带本轮**全部**事件,摘要消息里也是完整的,
+所以模板可以自己排版列表,不必迁就内置的正文格式:
+
+```yaml
+    body: |
+      {"content":{{json .Title}},"embeds":[{{range $i, $e := .Events}}{{if $i}},{{end}}
+        {"title":{{json $e.ProductTitle}},"url":{{json $e.URL}},
+         "description":{{json $e.Price}}}{{end}}]}
+```
+
+`.Kind` 是语言中立的 `listed` / `price_drop` / `delisted`,
+webhook 模板可据它自行分派任意语言的文案,不受 `notify.lang` 约束;
+`.KindLabel` 则是已本地化的形式。
+
+## 通知语言
+
+```yaml
+notify:
+  lang: zh-CN    # zh-CN(默认)| en
+```
+
+只影响推送文案——事件标签、降价句、摘要标题,以及 `-dry-run` 的终端输出。
+标点跟着语言走(中文全角、英文半角),英文的计数会区分单复数
+(`1 price drop` / `2 price drops`)。
+
+两件它**不改**的事:
+
+- **日志与错误信息**始终是中文。那是给跑这个进程的人看的,翻译它们只会让维护成本翻倍。
+- **商品标题**的语言由抓取的地区决定。所以 `lang: en` 配 `regions: [CN]`
+  会得到英文外壳 + 中文标题的混合体——这是预期行为,不是 bug。
+
+`lang` 取值无法识别时直接报错退出,而不是静默回退默认值。
 
 ## 配置与密钥
 

@@ -117,7 +117,11 @@ func run(configPath string, once, dryRun, listDims bool) error {
 
 func buildNotifiers(cfg *config.Config, dryRun bool) ([]notify.Notifier, error) {
 	if dryRun {
-		return []notify.Notifier{notify.NewConsole(os.Stdout)}, nil
+		lang, err := notify.ParseLang(cfg.Notify.Lang)
+		if err != nil {
+			return nil, err
+		}
+		return []notify.Notifier{notify.NewConsole(os.Stdout, lang)}, nil
 	}
 
 	var out []notify.Notifier

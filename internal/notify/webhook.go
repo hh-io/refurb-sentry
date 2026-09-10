@@ -10,9 +10,6 @@ import (
 	"strings"
 	"text/template"
 	"time"
-
-	"github.com/hh-io/refurb-sentry/internal/apple"
-	"github.com/hh-io/refurb-sentry/internal/state"
 )
 
 // defaultWebhookBody 是未指定模板时的通用 JSON 载荷。
@@ -92,7 +89,11 @@ func NewWebhook(opt WebhookOptions) (*Webhook, error) {
 
 func (w *Webhook) Name() string { return w.name }
 
-// TemplateData 是 body 模板可访问的字段。摘要消息里的商品字段取首条事件。
+// TemplateData 是 body 模板可访问的字段。
+//
+// Events 是本轮全部事件,摘要消息里也是完整的——模板可以 range 出自己的格式,
+// 不必迁就内置的正文排版。顶层的 EventView 是首条事件的展开,
+// 保证 .Kind、.Price 等扁平字段在单条消息里可以直接取用。
 type TemplateData struct {
 	Title string
 	Body  string
@@ -100,41 +101,21 @@ type TemplateData struct {
 	Group string
 	Text  string
 
-	Kind      string
-	KindLabel string
-	Count     int
+	Count  int
+	Events []EventView
 
-	Region        string
-	Category      string
-	PartNumber    string
-	ProductTitle  string
-	Currency      string
-	Price         string
-	PriceCents    int64
-	OldPrice      string
-	OldPriceCents int64
-	Rules         []string
+	// 内嵌首条事件。注意 .URL 会被上面的消息级 URL 遮蔽,
+	// range .Events 内部取到的才是每件商品自己的链接。
+	EventView
 }
 
 func buildTemplateData(m Message) TemplateData {
 	d := TemplateData{
 		Title: m.Title, Body: m.Body, URL: m.URL, Group: m.Group,
-		Text: m.Text(), Count: len(m.Events),
+		Text: m.Text(), Count: len(m.Events), Events: m.Events,
 	}
-	if len(m.Events) == 0 {
-		return d
-	}
-	ev := m.Events[0]
-	p := ev.Product
-	d.Kind = string(ev.Kind)
-	d.KindLabel = ev.Kind.Label()
-	d.Region, d.Category, d.PartNumber = p.Region, p.Category, p.PartNumber
-	d.ProductTitle, d.Currency = p.Title, p.Currency
-	d.Price, d.PriceCents = p.DisplayPrice(), p.PriceCents
-	d.Rules = ev.Rules
-	if ev.Kind == state.EventPriceDrop {
-		d.OldPriceCents = ev.OldPriceCents
-		d.OldPrice = apple.FormatPrice(ev.OldPriceCents, p.Currency)
+	if len(m.Events) > 0 {
+		d.EventView = m.Events[0]
 	}
 	return d
 }

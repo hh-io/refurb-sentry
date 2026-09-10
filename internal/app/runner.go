@@ -28,6 +28,7 @@ type Runner struct {
 	client *apple.Client
 	rules  *filter.Set
 	notif  *notify.Multi
+	render *notify.Renderer
 	st     *state.State
 	scopes []scope
 	log    *slog.Logger
@@ -59,9 +60,15 @@ func NewRunner(opt Options) (*Runner, error) {
 			scopes = append(scopes, scope{region: r, category: c})
 		}
 	}
+	// 配置在 Validate 阶段已经归一化过语言,这里不会再失败。
+	lang, err := notify.ParseLang(cfg.Notify.Lang)
+	if err != nil {
+		return nil, err
+	}
 	return &Runner{
 		cfg: cfg, client: opt.Client, rules: opt.Rules, notif: opt.Notifier,
-		st: opt.State, scopes: scopes, log: opt.Logger, dryRun: opt.DryRun,
+		render: notify.NewRenderer(lang, cfg.Notify.Group),
+		st:     opt.State, scopes: scopes, log: opt.Logger, dryRun: opt.DryRun,
 	}, nil
 }
 
@@ -214,9 +221,8 @@ func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 		return kindRank(matched[i].Kind) < kindRank(matched[j].Kind)
 	})
 
-	group := r.cfg.Notify.Group
 	if len(matched) > r.cfg.Notify.DigestThreshold {
-		sent, err := r.notif.Send(ctx, notify.RenderDigest(matched, group))
+		sent, err := r.notif.Send(ctx, r.render.Digest(matched))
 		if err != nil {
 			r.log.Error("摘要推送存在失败渠道", "err", err)
 		}
@@ -225,7 +231,7 @@ func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 
 	delivered := 0
 	for _, ev := range matched {
-		sent, err := r.notif.Send(ctx, notify.RenderEvent(ev, group))
+		sent, err := r.notif.Send(ctx, r.render.Event(ev))
 		if err != nil {
 			r.log.Error("事件推送存在失败渠道", "part_number", ev.Product.PartNumber, "err", err)
 		}

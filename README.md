@@ -10,19 +10,21 @@ Single static binary, runs as a daemon, keeps its state in one JSON file so a
 restart loses nothing.
 
 > [!NOTE]
-> **Notification text and log messages are in Chinese.** Event labels (上架 = listed,
-> 降价 = price drop, 下架 = delisted) are hardcoded. Everything you configure —
-> config keys, region and category codes, dimension values, rule fields — is in
-> English/ASCII, and product titles come through in whatever language the target
-> Apple store uses. Localisation of the output is not implemented yet.
+> Notification text is available in English (`notify.lang: en`) and Chinese
+> (`zh-CN`, the default). Log output and error messages are always Chinese —
+> they're for operators, not end users. Product titles come through in whatever
+> language the target Apple store uses, so `lang: en` with `regions: [CN]` gives
+> you an English shell around Chinese titles.
 
 ## What a notification looks like
 
+With `notify.lang: en`:
+
 ```
-降价 · US mac                                    ← "price drop · US mac"
-Refurbished 14-inch MacBook Pro Apple M4 Pro chip with 12-Core CPU and 16-Core GPU
-$1,999 → $1,799(降 $200,10.0%)                  ← "down $200, 10.0%"
-命中规则:MacBook Pro high-end                    ← "matched rule: ..."
+Price drop · US mac
+Refurbished 24-inch iMac Apple M4 Chip with 10-Core CPU and 10-Core GPU - Silver
+$2,134.80 → $1,779 (down $355.80, 16.7%)
+Matched rule: iMac under 2k
 https://www.apple.com/shop/product/...
 ```
 
@@ -31,9 +33,9 @@ When a single round produces more than `notify.digest_threshold` events
 your phone:
 
 ```
-翻新监控 · 上架 6 / 降价 2                        ← "refurb watch · 6 listed / 2 price drops"
-[上架] US Refurbished Mac mini Apple M4 chip $499
-[降价] US Refurbished 14-inch MacBook Pro $1,999 → $1,799
+Refurb watch · 6 listings / 2 price drops
+[Listed] US Refurbished Mac mini Apple M4 chip $499
+[Price drop] US Refurbished 14-inch MacBook Pro $1,999 → $1,799
 ……
 ```
 
@@ -222,10 +224,49 @@ channels:
       {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}}}
 ```
 
-Available template fields: `.Title` `.Body` `.URL` `.Group` `.Text` `.Kind`
-`.KindLabel` `.Count` `.Region` `.Category` `.PartNumber` `.ProductTitle`
-`.Currency` `.Price` `.PriceCents` `.OldPrice` `.OldPriceCents` `.Rules`.
-On a digest message, the per-product fields come from the first event.
+### Template fields
+
+Message-level: `.Title` `.Body` `.URL` `.Group` `.Text` `.Count` `.Events`
+
+Per-product (top level = the first event; also available on each `.Events` entry):
+`.Kind` `.KindLabel` `.Region` `.Category` `.PartNumber` `.ProductTitle`
+`.Currency` `.Price` `.PriceCents` `.OldPrice` `.OldPriceCents` `.Rules`
+
+`.Events` carries **every** event in the round, digests included, so a template
+can lay out its own list instead of reusing the built-in body:
+
+```yaml
+    body: |
+      {"content":{{json .Title}},"embeds":[{{range $i, $e := .Events}}{{if $i}},{{end}}
+        {"title":{{json $e.ProductTitle}},"url":{{json $e.URL}},
+         "description":{{json $e.Price}}}{{end}}]}
+```
+
+`.Kind` is language-neutral (`listed` / `price_drop` / `delisted`), so a webhook
+template can dispatch its own wording in any language regardless of
+`notify.lang`. `.KindLabel` is the localised form.
+
+## Notification language
+
+```yaml
+notify:
+  lang: en    # en | zh-CN (default)
+```
+
+Affects notification text only — event labels, the price-drop line, the digest
+header and the `-dry-run` console output. Punctuation follows the language
+(half-width for English, full-width for Chinese) and English counts are
+pluralised (`1 price drop` / `2 price drops`).
+
+Two things it does **not** change:
+
+- **Log and error messages**, which stay Chinese. They target whoever runs the
+  process, and translating them doubles the maintenance for no gain.
+- **Product titles**, which come from the Apple store page in that region's
+  language. This is why `lang: en` with `regions: [CN]` yields English framing
+  around Chinese titles — expected, not a bug.
+
+An unrecognised `lang` is a fatal error rather than a silent fallback.
 
 ## Config and secrets
 

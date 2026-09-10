@@ -77,18 +77,6 @@ const (
 	EventDelisted  EventKind = "delisted"
 )
 
-func (k EventKind) Label() string {
-	switch k {
-	case EventListed:
-		return "上架"
-	case EventPriceDrop:
-		return "降价"
-	case EventDelisted:
-		return "下架"
-	}
-	return string(k)
-}
-
 type Event struct {
 	Kind    EventKind
 	Product apple.Product

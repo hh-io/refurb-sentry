@@ -18,8 +18,31 @@ type Message struct {
 	URL   string
 	Group string
 
-	// Events 保留原始事件,供 webhook 模板取用更细的字段。
-	Events []state.Event
+	// Events 是逐条事件的展示数据,供 webhook 模板自行拼装格式。
+	// 摘要消息里含全部事件,单条消息里只有一条。
+	Events []EventView
+}
+
+// EventView 是单条事件在模板里可见的展示数据,文案部分已按语言本地化。
+// Kind 保持语言中立(listed / price_drop / delisted),
+// 模板可据此自己分派任意语言的文案,不受 lang 配置约束。
+type EventView struct {
+	Kind      string
+	KindLabel string
+
+	Region       string
+	Category     string
+	PartNumber   string
+	ProductTitle string
+	URL          string
+
+	Currency      string
+	Price         string
+	PriceCents    int64
+	OldPrice      string
+	OldPriceCents int64
+
+	Rules []string
 }
 
 // Text 是 Title/Body/URL 的合并纯文本,供只接受单一文本字段的渠道使用。
@@ -84,10 +107,45 @@ func (m *Multi) Send(ctx context.Context, msg Message) (int, error) {
 	return sent, errors.Join(errs...)
 }
 
-// RenderEvent 把单条事件渲染成一条通知。
-func RenderEvent(ev state.Event, group string) Message {
+// Renderer 按配置的语言渲染通知。语言与分组在一轮内都不变,
+// 因此收在一个对象里,而不是给每个渲染函数追加两个 string 参数——
+// 相邻的同类型参数很容易传反。
+type Renderer struct {
+	p     phrases
+	group string
+}
+
+func NewRenderer(lang Lang, group string) *Renderer {
+	return &Renderer{p: phrasesFor(lang), group: group}
+}
+
+// view 把事件转成模板可见的展示数据。
+func (r *Renderer) view(ev state.Event) EventView {
 	p := ev.Product
-	title := fmt.Sprintf("%s · %s %s", ev.Kind.Label(), p.Region, p.Category)
+	v := EventView{
+		Kind:         string(ev.Kind),
+		KindLabel:    r.p.label(ev.Kind),
+		Region:       p.Region,
+		Category:     p.Category,
+		PartNumber:   p.PartNumber,
+		ProductTitle: p.Title,
+		URL:          p.URL,
+		Currency:     p.Currency,
+		Price:        p.DisplayPrice(),
+		PriceCents:   p.PriceCents,
+		Rules:        ev.Rules,
+	}
+	if ev.Kind == state.EventPriceDrop {
+		v.OldPriceCents = ev.OldPriceCents
+		v.OldPrice = apple.FormatPrice(ev.OldPriceCents, p.Currency)
+	}
+	return v
+}
+
+// Event 把单条事件渲染成一条通知。
+func (r *Renderer) Event(ev state.Event) Message {
+	p := ev.Product
+	title := fmt.Sprintf(r.p.eventTitle, r.p.label(ev.Kind), p.Region, p.Category)
 
 	var b strings.Builder
 	b.WriteString(p.Title)
@@ -97,7 +155,7 @@ func RenderEvent(ev state.Event, group string) Message {
 	case state.EventPriceDrop:
 		drop := ev.OldPriceCents - p.PriceCents
 		pct := float64(drop) / float64(ev.OldPriceCents) * 100
-		fmt.Fprintf(&b, "%s → %s(降 %s,%.1f%%)",
+		fmt.Fprintf(&b, r.p.priceChange,
 			apple.FormatPrice(ev.OldPriceCents, p.Currency),
 			p.DisplayPrice(),
 			apple.FormatPrice(drop, p.Currency),
@@ -107,15 +165,25 @@ func RenderEvent(ev state.Event, group string) Message {
 	}
 
 	if len(ev.Rules) > 0 {
-		fmt.Fprintf(&b, "\n命中规则:%s", strings.Join(ev.Rules, "、"))
+		format := r.p.rulesOne
+		if len(ev.Rules) > 1 {
+			format = r.p.rulesMany
+		}
+		fmt.Fprintf(&b, format, strings.Join(ev.Rules, r.p.ruleSep))
 	}
 
-	return Message{Title: title, Body: b.String(), URL: p.URL, Group: group, Events: []state.Event{ev}}
+	return Message{
+		Title:  title,
+		Body:   b.String(),
+		URL:    p.URL,
+		Group:  r.group,
+		Events: []EventView{r.view(ev)},
+	}
 }
 
-// RenderDigest 把一批事件合成一条摘要。Apple 偶尔会批量上架,
+// Digest 把一批事件合成一条摘要。Apple 偶尔会批量上架,
 // 逐条推送会在手机上刷屏,超过阈值时改用摘要。
-func RenderDigest(evs []state.Event, group string) Message {
+func (r *Renderer) Digest(evs []state.Event) Message {
 	counts := map[state.EventKind]int{}
 	for _, ev := range evs {
 		counts[ev.Kind]++
@@ -123,20 +191,27 @@ func RenderDigest(evs []state.Event, group string) Message {
 	var parts []string
 	for _, k := range []state.EventKind{state.EventListed, state.EventPriceDrop, state.EventDelisted} {
 		if counts[k] > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", k.Label(), counts[k]))
+			parts = append(parts, r.p.count(k, counts[k]))
 		}
 	}
-	title := fmt.Sprintf("翻新监控 · %s", strings.Join(parts, " / "))
+	title := fmt.Sprintf(r.p.digestTitle, strings.Join(parts, " / "))
 
+	// 正文只列前 maxLines 条,但 Events 始终携带全部事件,
+	// 需要完整列表的 webhook 模板可以自己遍历。
 	const maxLines = 12
 	var b strings.Builder
+	views := make([]EventView, 0, len(evs))
 	for i, ev := range evs {
+		views = append(views, r.view(ev))
+		if i > maxLines {
+			continue
+		}
 		if i == maxLines {
-			fmt.Fprintf(&b, "…… 另有 %d 条", len(evs)-maxLines)
-			break
+			fmt.Fprintf(&b, r.p.digestMore, len(evs)-maxLines)
+			continue
 		}
 		p := ev.Product
-		fmt.Fprintf(&b, "[%s] %s %s", ev.Kind.Label(), p.Region, p.Title)
+		fmt.Fprintf(&b, r.p.digestLine, r.p.label(ev.Kind), p.Region, p.Title)
 		if ev.Kind == state.EventPriceDrop {
 			fmt.Fprintf(&b, " %s → %s", apple.FormatPrice(ev.OldPriceCents, p.Currency), p.DisplayPrice())
 		} else {
@@ -150,5 +225,11 @@ func RenderDigest(evs []state.Event, group string) Message {
 	if len(evs) > 0 {
 		url = evs[0].Product.URL
 	}
-	return Message{Title: title, Body: strings.TrimRight(b.String(), "\n"), URL: url, Group: group, Events: evs}
+	return Message{
+		Title:  title,
+		Body:   strings.TrimRight(b.String(), "\n"),
+		URL:    url,
+		Group:  r.group,
+		Events: views,
+	}
 }
