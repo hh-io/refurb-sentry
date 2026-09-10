@@ -340,7 +340,11 @@ func (r *Runner) save() error {
 }
 
 // ListDimensions 打印各地区/分类当前可用的过滤维度键与取值,供用户编写规则。
-func (r *Runner) ListDimensions(ctx context.Context, out func(string)) error {
+//
+// skeleton 控制是否附带可粘贴的规则骨架。默认不打印:这个命令的日常用途是
+// 「现在有哪些取值」与「芯片解析还正常吗」,骨架对这两件事都是噪音,
+// 而且每个 scope 十几行,地区一多就把维度表淹没了。骨架只在初次写规则时有用。
+func (r *Runner) ListDimensions(ctx context.Context, skeleton bool, out func(string)) error {
 	for i, sc := range r.scopes {
 		if err := r.pause(ctx, i); err != nil {
 			return err
@@ -360,8 +364,14 @@ func (r *Runner) ListDimensions(ctx context.Context, out func(string)) error {
 			out(formatDimension("chips", "芯片", idx.chips))
 		}
 
-		out("\n  ----- 规则骨架(整段复制到配置的 rules: 下,再删掉不要的取值)-----")
-		out(formatRuleSkeleton(sc, idx))
+		if skeleton {
+			out("\n  ----- 规则骨架(整段复制到配置的 rules: 下,再删掉不要的取值)-----")
+			out(formatRuleSkeleton(sc, idx))
+		}
+	}
+	// 不打印骨架时提示它的存在,否则这个功能没人会发现。
+	if !skeleton {
+		out("\n(加 -skeleton 可附带打印可直接粘贴到 rules: 下的规则骨架)")
 	}
 	return nil
 }
@@ -446,12 +456,19 @@ func formatRuleSkeleton(sc scope, idx dimensionIndex) string {
 		}
 	}
 	if len(idx.chips) > 0 {
-		fmt.Fprintf(&b, "    chips: [%s]\n", yamlFlowSeq(idx.chips))
+		fmt.Fprintf(&b, "    chips: [%s]", yamlFlowSeq(idx.chips))
 	}
-	// 这两项没有可枚举的取值,只能给注释行提示存在。YAML 注释粘贴过去照样合法。
-	b.WriteString("    # min_cpu_cores: 12\n")
-	b.WriteString("    # max_price: 20000")
-	return b.String()
+	// 刻意不再附 "# min_cpu_cores: 12"、"# max_price: 20000" 这类提示行:
+	// 骨架其余每一行都来自当前真实在售的商品,读者会合理地认为整段都是这个性质,
+	// 而那两个数字与当前数据、与用户的需求都毫无关系,纯粹是从示例配置抄来的。
+	// 实测已经误导过用户(「为什么会有个最大价格 2 万」),更糟的是顺手去掉 # 之后,
+	// max_price: 20000 会把这个项目最值得监控的高配机型静默挡在门外。
+	// 这些字段的说明属于 README 的规则字段速查表——文档里写「这个字段存在」是说明,
+	// 数据输出里写「= 20000」则像是个结论。
+	//
+	// 去掉末尾换行:每个维度行都自带 \n,调用方 out() 还会再加一个,
+	// 不修掉的话每段骨架后面会多出一个空行。
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // yamlFlowSeq 把取值拼成 flow 序列。取值直接来自上游,含逗号或冒号时裸写会改变

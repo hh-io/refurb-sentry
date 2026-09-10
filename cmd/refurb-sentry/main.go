@@ -29,6 +29,7 @@ func main() {
 		once        = flag.Bool("once", false, "只执行一轮后退出")
 		dryRun      = flag.Bool("dry-run", false, "试运行:通知打印到标准输出,且不写入状态文件")
 		listDims    = flag.Bool("list-dims", false, "列出各地区/分类当前可用的过滤维度与取值后退出")
+		skeleton    = flag.Bool("skeleton", false, "配合 -list-dims:额外打印可直接粘贴到 rules: 下的规则骨架")
 		showVersion = flag.Bool("version", false, "打印版本后退出")
 	)
 	flag.Parse()
@@ -38,14 +39,14 @@ func main() {
 		return
 	}
 
-	if err := run(*configPath, *once, *dryRun, *listDims); err != nil {
+	if err := run(*configPath, *once, *dryRun, *listDims, *skeleton); err != nil {
 		// 用 stderr 而非 slog:配置尚未加载时 logger 可能还不存在。
 		fmt.Fprintln(os.Stderr, "错误:", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath string, once, dryRun, listDims bool) error {
+func run(configPath string, once, dryRun, listDims, skeleton bool) error {
 	cfg, warnings, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -77,7 +78,8 @@ func run(configPath string, once, dryRun, listDims bool) error {
 	defer stop()
 
 	// -list-dims 只查询上游,既不读写状态也不推送,因此跳过渠道与状态库的准备。
-	if listDims {
+	// -skeleton 单独给出时隐含 -list-dims:骨架本就由维度数据生成,不必要求两个参数一起写。
+	if listDims || skeleton {
 		runner, err := app.NewRunner(app.Options{
 			Config: cfg, Client: client, Rules: rules,
 			Notifier: notify.NewMulti(nil, log), State: state.New(), Logger: log,
@@ -85,7 +87,7 @@ func run(configPath string, once, dryRun, listDims bool) error {
 		if err != nil {
 			return err
 		}
-		return runner.ListDimensions(ctx, func(s string) { fmt.Println(s) })
+		return runner.ListDimensions(ctx, skeleton, func(s string) { fmt.Println(s) })
 	}
 
 	notifiers, err := buildNotifiers(cfg, dryRun)

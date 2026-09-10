@@ -103,8 +103,10 @@ go build -o refurb-sentry ./cmd/refurb-sentry
 cp configs/config.example.yaml configs/config.yaml
 export BARK_KEY=your_bark_device_key
 
-# 2. 查询当前地区和分类可用的过滤维度与真实在售值（末尾附可直接粘贴的规则骨架）
+# 2. 查询当前地区和分类可用的过滤维度与真实在售值
 ./refurb-sentry -config configs/config.yaml -list-dims
+# 初次写规则时加 -skeleton，额外得到一段可直接粘贴的规则骨架
+./refurb-sentry -config configs/config.yaml -list-dims -skeleton
 
 # 3. 试运行一轮：在终端打印当前抓取与通知结果（不写状态文件、不触发实际推送）
 ./refurb-sentry -config configs/config.yaml -once -dry-run
@@ -125,7 +127,8 @@ export BARK_KEY=your_bark_device_key
 | `-config` | 配置文件路径，默认 `configs/config.yaml` |
 | `-once` | 仅执行单轮抓取与比对后退出 |
 | `-dry-run` | 试运行模式：不实际推送、不写入状态文件，将通知打印到终端 |
-| `-list-dims` | 查询目标地区/分类在 Apple 商店当前在售商品的所有维度及取值，并附一段可粘贴的规则骨架 |
+| `-list-dims` | 查询目标地区/分类在 Apple 商店当前在售商品的所有维度及取值 |
+| `-skeleton` | 配合 `-list-dims`，额外打印可直接粘贴到 `rules:` 下的规则骨架；单独给出时隐含 `-list-dims` |
 | `-version` | 打印当前版本号 |
 
 ---
@@ -174,7 +177,7 @@ https://www.apple.com.cn/shop/product/...
 不同分类在 Apple 商店呈现的维度各不相同（例如 Mac 有内存/存储容量，Watch 有表壳尺寸/材质），编写规则前建议先运行查询：
 
 ```console
-$ ./refurb-sentry -config configs/config.yaml -list-dims
+$ ./refurb-sentry -config configs/config.yaml -list-dims -skeleton
 
 ===== CN/mac(208 件)=====
   refurbClearModel       (机型)   display, imac, macbookair, macbookneo, macbookpro, macmini, macstudio
@@ -197,19 +200,22 @@ $ ./refurb-sentry -config configs/config.yaml -list-dims
       tsMemorySize: [128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb]
       dimensionCapacity: [1tb, 256gb, 2tb, 4tb, 512gb, 8tb]
     chips: [A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro]
-    # min_cpu_cores: 12
-    # max_price: 20000
 ```
 
 括号里的标签直接取自 Apple 商店页面，因此**会随地区语言变化**（抓美区就是 `(Models)`、
 `(Memory)`）；只有 `chips` 是本工具自己算出来的，标签恒为 `芯片`，表头的 `件` 同理——
 那属于面向运维的终端输出。括号两侧的键与取值是稳定标识符，写规则时用的正是它们。
 
-表格下面那段是**可直接粘贴的规则骨架**，键名与取值都是该地区/分类当前实际在售的值，
-整段复制到配置的 `rules:` 下即可开始改。它列出全部取值时等价于「不过滤」，
+加上 `-skeleton` 后，表格下面会多出一段**可直接粘贴的规则骨架**，键名与取值都是该地区/分类
+当前实际在售的值，整段复制到配置的 `rules:` 下即可开始改。它列出全部取值时等价于「不过滤」，
 **要做的是删减而不是补全**——删到只剩你想要的那几个取值，规则才开始起作用。
-`min_cpu_cores` 与 `max_price` 没有可枚举的取值，以注释行形式列出，需要时取消注释。
 当前无货的维度不会进骨架：写进规则等于加了一个永不匹配的条件。
+
+骨架只列有真实取值的字段。`min_cpu_cores`、`max_price` 这些没有可枚举取值的条件不会出现在
+骨架里——往一整段实测值中间塞一个凭空的数字，读者会以为它也是从数据里来的。
+这些字段见下面的[规则字段速查](#3-规则字段速查)，需要时自己加。
+
+日常只是想看「现在有哪些取值」或排查芯片解析时，不加 `-skeleton` 即可，输出会干净很多。
 
 ### 2. 规则编写示例
 

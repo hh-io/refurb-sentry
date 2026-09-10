@@ -103,8 +103,10 @@ go build -o refurb-sentry ./cmd/refurb-sentry
 cp configs/config.example.yaml configs/config.yaml
 export BARK_KEY=your_bark_device_key
 
-# 2. Inspect available filter dimensions and active product values (ends with a paste-ready rule skeleton)
+# 2. Inspect available filter dimensions and active product values
 ./refurb-sentry -config configs/config.yaml -list-dims
+# Add -skeleton when writing rules for the first time, for a paste-ready starting point
+./refurb-sentry -config configs/config.yaml -list-dims -skeleton
 
 # 3. Dry-run one round: prints parsed notifications to stdout (no state written, no alerts sent)
 ./refurb-sentry -config configs/config.yaml -once -dry-run
@@ -125,7 +127,8 @@ export BARK_KEY=your_bark_device_key
 | `-config` | Path to configuration file (default: `configs/config.yaml`) |
 | `-once` | Run a single round and exit |
 | `-dry-run` | Dry-run mode: prints notifications to stdout without modifying state or sending alerts |
-| `-list-dims` | Prints currently available dimensions and values for configured regions/categories, followed by a paste-ready rule skeleton |
+| `-list-dims` | Prints currently available dimensions and values for configured regions/categories |
+| `-skeleton` | With `-list-dims`, also prints a paste-ready rule skeleton for the `rules:` block; given alone it implies `-list-dims` |
 | `-version` | Print version information |
 
 ---
@@ -197,8 +200,6 @@ $ ./refurb-sentry -config configs/config.yaml -list-dims
       tsMemorySize: [128gb, 16gb, 24gb, 32gb, 36gb, 48gb, 64gb, 8gb]
       dimensionCapacity: [1tb, 256gb, 2tb, 4tb, 512gb, 8tb]
     chips: [A18 Pro, M2, M4, M4 Max, M4 Pro, M5, M5 Max, M5 Pro]
-    # min_cpu_cores: 12
-    # max_price: 20000
 ```
 
 The labels in parentheses come from the Apple store page itself, so they arrive in

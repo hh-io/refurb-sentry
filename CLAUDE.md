@@ -119,6 +119,16 @@
 
 - 规则过滤发生在 **diff 之后、推送之前**。状态库始终记录全部商品,
   这样以后放宽规则时,早已在架的商品不会被误报成新上架。
+- `-list-dims` 的规则骨架**默认不打印**,由 `-skeleton` 开启。这个命令的日常用途是
+  「现在有哪些取值」与「芯片解析还正常吗」(见 README 的排错一节),骨架对这两件事
+  都是噪音,而且每个 scope 十几行,地区一多就把维度表淹没了。
+  骨架里也**不许出现 `min_cpu_cores`、`max_price` 这类没有可枚举取值的字段**:
+  骨架其余每一行都来自当前真实在售的商品,读者会合理地认为整段都是这个性质,
+  往里塞一个凭空的数字就等于给出一个假结论。曾经附过 `# max_price: 20000`,
+  实测误导过用户(「为什么会有个最大价格 2 万」),而顺手去掉那个 `#` 之后,
+  它会把 CN 站 2.1 万起步的高配 MacBook Pro 全部静默挡在门外。
+  这些字段的说明属于 README 的规则字段速查表。
+  `TestRuleSkeletonCarriesNoInventedValues` 防这个回归。
 - 依赖只有 `gopkg.in/yaml.v3` 和 `golang.org/x/net`(SOCKS5),其余全标准库。
   加新依赖前先确认标准库真的做不到。
 - 配置在 **YAML 节点层**展开环境变量,不是文本替换——否则注释里的 `${VAR}` 会被误当引用。
@@ -144,7 +154,8 @@
 
 ```bash
 go test ./... && go vet ./... && gofmt -l .
-./refurb-sentry -config configs/config.yaml -list-dims   # 查当前可用的过滤维度
+./refurb-sentry -config configs/config.yaml -list-dims              # 查当前可用的过滤维度
+./refurb-sentry -config configs/config.yaml -list-dims -skeleton    # 另附可粘贴的规则骨架
 ./refurb-sentry -config configs/config.yaml -once -dry-run
 ```
 

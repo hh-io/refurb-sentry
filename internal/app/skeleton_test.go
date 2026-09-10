@@ -147,3 +147,49 @@ func TestIndexDimensionsOrdersKeysByLegendThenAlpha(t *testing.T) {
 		t.Errorf("keys = %v, 期望 %v", idx.keys, want)
 	}
 }
+
+// 骨架里的每一行都必须来自当前真实在售的数据。
+//
+// 曾经末尾附过 "# min_cpu_cores: 12" 与 "# max_price: 20000" 两行提示,
+// 它们与这一刻的数据、与用户的需求都毫无关系,纯粹是从示例配置抄来的数字,
+// 却混在一整段实测值里——读者会合理地认为整段都是同一性质。实测确实误导过用户。
+// 更糟的是顺手去掉那个 # 之后,max_price: 20000 会把 CN 站 2.1 万起步的
+// 高配 MacBook Pro 全部静默挡在门外,而这正是本项目最值得监控的一档。
+//
+// 字段说明属于 README 的规则字段速查表:文档里写「这个字段存在」是说明,
+// 数据输出里写「= 20000」则像是个结论。
+func TestRuleSkeletonCarriesNoInventedValues(t *testing.T) {
+	sc := testScope(t, "CN", "mac")
+	grid := &apple.Grid{
+		Legends: []apple.DimensionLegend{{Key: "refurbClearModel", Legend: "机型"}},
+		Products: []apple.Product{{
+			Region: "CN", Category: "mac", PartNumber: "A", PriceCents: 100,
+			Title:      "翻新 14 英寸 MacBook Pro Apple M4 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器)",
+			Dimensions: map[string]string{"refurbClearModel": "macbookpro"},
+		}},
+	}
+
+	got := formatRuleSkeleton(sc, indexDimensions(grid))
+	for _, banned := range []string{"min_cpu_cores", "min_gpu_cores", "max_price", "min_price"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("骨架不该出现 %q:它没有可枚举的取值,写进去的只能是编造的数字\n%s", banned, got)
+		}
+	}
+}
+
+// 骨架不该以换行结尾:调用方每段都会再补一个换行,留着会多出空行。
+func TestRuleSkeletonHasNoTrailingNewline(t *testing.T) {
+	sc := testScope(t, "CN", "watch")
+	grid := &apple.Grid{
+		Legends: []apple.DimensionLegend{{Key: "dimensionCaseSize", Legend: "表壳尺寸"}},
+		Products: []apple.Product{{
+			Region: "CN", Category: "watch", PartNumber: "W", PriceCents: 100,
+			Title:      "翻新 Apple Watch Ultra 4",
+			Dimensions: map[string]string{"dimensionCaseSize": "49mm"},
+		}},
+	}
+	got := formatRuleSkeleton(sc, indexDimensions(grid))
+	if strings.HasSuffix(got, "\n") {
+		t.Errorf("骨架不该以换行结尾:\n%q", got)
+	}
+}
