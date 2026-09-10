@@ -72,6 +72,54 @@ channels:
     body: |
       {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}},"disable_web_page_preview":false}
 
+  # 下面几个国内常用的群机器人/推送服务同样只是换 url + body 模板,不需要额外代码。
+  # 都默认 enabled: false,不会逼你为用不到的渠道去设环境变量。
+
+  # 飞书自定义机器人。安全设置请选「自定义关键词」或「IP 白名单」:
+  # 「签名校验」要用密钥算 HmacSHA256 再随请求体上传 timestamp/sign,本工具不支持。
+  # 选了关键词就让关键词出现在正文里,例如把下面的 {{json .Text}} 换成
+  #   {{json (printf "refurb-sentry\n%s" .Text)}}
+  # ——推送标题是「上架 · CN mac」这种动态文本,没有恒定出现的词可依赖。
+  - type: webhook
+    name: feishu
+    enabled: false
+    url: ${FEISHU_WEBHOOK_URL}
+    body: |
+      {"msg_type":"text","content":{"text":{{json .Text}}}}
+
+  # 企业微信群机器人。markdown 里 \n 即换行,content 上限 4096 字节。
+  - type: webhook
+    name: wecom
+    enabled: false
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}
+    body: |
+      {"msgtype":"markdown","markdown":{"content":{{json .Text}}}}
+
+  # 钉钉自定义机器人。同样只能用「自定义关键词」或「IP 地址(段)」两种安全设置,
+  # 「加签」需要在 URL 上带 timestamp 与 HmacSHA256 算出的 sign,本工具不支持。
+  # 用 text 而非 markdown 类型:钉钉按标准 markdown 渲染,单个换行不成行,
+  # 想用 markdown 得自己在每行末尾补两个空格。
+  - type: webhook
+    name: dingtalk
+    enabled: false
+    url: https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_ACCESS_TOKEN}
+    body: |
+      {"msgtype":"text","text":{"content":{{json .Text}}}}
+
+  # Server 酱 Turbo。它收 form 表单而不是 JSON,所以要显式改 Content-Type,
+  # 并改用 text/template 内置的 urlquery 转义(json 那套在这里不适用)。
+  # SendKey 以 sctp 开头的新版改用 https://<uid>.push.ft07.com/send/<SendKey>.send,
+  # uid 是 SendKey 里 sctp 与 t 之间的数字。
+  - type: webhook
+    name: serverchan
+    enabled: false
+    url: https://sctapi.ftqq.com/${SERVERCHAN_SENDKEY}.send
+    method: POST
+    headers:
+      Content-Type: application/x-www-form-urlencoded
+    body: |
+      title={{urlquery .Title}}&desp={{urlquery .Text}}
+
 # 过滤规则。留空表示推送所选范围内的全部变动。
 #
 # 匹配语义:规则之间是 OR(命中任意一条即推送);

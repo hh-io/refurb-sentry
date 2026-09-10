@@ -263,6 +263,54 @@ channels:
       {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}}}
 ```
 
+### Feishu / WeCom / DingTalk / ServerChan
+
+These are just a different `url` and `body` template too — no extra code.
+`configs/config.example.yaml` ships four ready-to-enable blocks; the gist:
+
+| Channel | Payload | Notes |
+| --- | --- | --- |
+| Feishu (Lark) bot | `{"msg_type":"text","content":{"text":…}}` | See the security note below |
+| WeCom group bot | `{"msgtype":"markdown","markdown":{"content":…}}` | `\n` breaks lines; 4096 bytes max |
+| DingTalk bot | `{"msgtype":"text","text":{"content":…}}` | text, not markdown — see below |
+| ServerChan Turbo | `title=…&desp=…` form | Takes a form, not JSON |
+
+> [!IMPORTANT]
+> **The signed ("加签") security mode of Feishu and DingTalk is not supported.**
+> Both want an HmacSHA256 signature computed from a secret and passed along as
+> `timestamp` / `sign`; the generic webhook only renders templates, it does not
+> sign anything. Pick "custom keywords" or the IP allowlist when you create the bot.
+
+If you go with custom keywords, note that notification titles are dynamic text
+like `Listed · CN mac` — there is no word guaranteed to appear. Put the keyword
+straight into the body instead:
+
+```yaml
+    body: |
+      {"msg_type":"text","content":{"text":{{json (printf "refurb-sentry\n%s" .Text)}}}}
+```
+
+DingTalk uses `text` rather than `markdown` here: it renders standard markdown,
+where a single newline does not break a line, so markdown would mean padding
+every line with two trailing spaces. WeCom's markdown has no such quirk.
+
+ServerChan takes a form, so override `Content-Type` explicitly and escape with
+`text/template`'s built-in `urlquery` instead of `json`:
+
+```yaml
+  - type: webhook
+    name: serverchan
+    url: https://sctapi.ftqq.com/${SERVERCHAN_SENDKEY}.send
+    headers:
+      Content-Type: application/x-www-form-urlencoded
+    body: |
+      title={{urlquery .Title}}&desp={{urlquery .Text}}
+```
+
+A newer SendKey starting with `sctp` uses a different host:
+`https://<uid>.push.ft07.com/send/<SendKey>.send`, where `uid` is the run of
+digits between `sctp` and `t` in the SendKey.
+
 ### Template fields
 
 Message-level: `.Title` `.Body` `.URL` `.Group` `.Text` `.Count` `.Events`

@@ -65,6 +65,12 @@
 - 配置在 **YAML 节点层**展开环境变量,不是文本替换——否则注释里的 `${VAR}` 会被误当引用。
   且 `enabled: false` 的渠道整棵子树跳过展开:示例配置里禁用的 telegram 渠道
   不该逼用户去设 `TELEGRAM_BOT_TOKEN`(这曾让 README 的快速开始必然失败)。
+- 通用 webhook 只做模板渲染,**不算签名**。飞书/钉钉的「加签」安全模式因此用不了,
+  两版 README 与示例配置都写明改用自定义关键词或 IP 白名单——
+  为一个渠道引入 HMAC 分支不如把边界说清楚。
+  示例配置里的 body 模板写错既不编译报错也碰不到其它测试,只会在真收到事件那天静默 400,
+  `TestExampleConfigWebhookTemplatesRender` 为此把每份模板真发一遍到本地服务器,
+  按 Content-Type 校验载荷是合法 JSON / 表单,且商品标题确实落进了载荷。
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 

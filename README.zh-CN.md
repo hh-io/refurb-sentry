@@ -215,7 +215,7 @@ channels:
 `icon` 是通知左侧显示的图标,任何公网可访问的位图都行——iOS 不认 SVG。
 留空则保持 Bark 自带的图标。
 
-### Telegram / 飞书 / 其它
+### Telegram / Discord / 其它
 
 通用 webhook 用 Go 模板拼请求体,`{{json .X}}` 会安全转义:
 
@@ -227,6 +227,51 @@ channels:
     body: |
       {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}}}
 ```
+
+### 飞书 / 企业微信 / 钉钉 / Server 酱
+
+这几个同样只是换 `url` 和 `body` 模板,不需要额外代码。
+`configs/config.example.yaml` 里有四份可直接启用的完整配置,要点如下:
+
+| 渠道 | 请求体 | 说明 |
+| --- | --- | --- |
+| 飞书自定义机器人 | `{"msg_type":"text","content":{"text":…}}` | 安全设置见下 |
+| 企业微信群机器人 | `{"msgtype":"markdown","markdown":{"content":…}}` | markdown 里 `\n` 即换行,上限 4096 字节 |
+| 钉钉自定义机器人 | `{"msgtype":"text","text":{"content":…}}` | 用 text 而非 markdown,原因见下 |
+| Server 酱 Turbo | `title=…&desp=…` 表单 | 收表单而不是 JSON |
+
+> [!IMPORTANT]
+> **飞书与钉钉的「加签」安全模式不支持。** 两家都要求用密钥算出 HmacSHA256
+> 签名,再把 `timestamp` / `sign` 随请求带上,而通用 webhook 只做模板渲染,
+> 不会算签名。建机器人时请选「自定义关键词」或「IP 白名单 / IP 地址(段)」。
+
+选了自定义关键词的话,注意推送标题是「上架 · CN mac」这类动态文本,
+没有恒定出现的词可依赖——把关键词直接拼进正文即可:
+
+```yaml
+    body: |
+      {"msg_type":"text","content":{"text":{{json (printf "refurb-sentry\n%s" .Text)}}}}
+```
+
+钉钉这里用 `text` 而不是 `markdown`:钉钉按标准 markdown 渲染,单个换行不成行,
+用 markdown 就得自己在每行末尾补两个空格。企业微信的 markdown 没有这个问题。
+
+Server 酱收的是表单,所以要显式覆盖 `Content-Type`,
+并改用 `text/template` 内置的 `urlquery`(而不是 `json`)转义:
+
+```yaml
+  - type: webhook
+    name: serverchan
+    url: https://sctapi.ftqq.com/${SERVERCHAN_SENDKEY}.send
+    headers:
+      Content-Type: application/x-www-form-urlencoded
+    body: |
+      title={{urlquery .Title}}&desp={{urlquery .Text}}
+```
+
+SendKey 以 `sctp` 开头的新版地址不同,要改成
+`https://<uid>.push.ft07.com/send/<SendKey>.send`,
+其中 `uid` 是 SendKey 里 `sctp` 与 `t` 之间的那串数字。
 
 ### 模板字段
 
