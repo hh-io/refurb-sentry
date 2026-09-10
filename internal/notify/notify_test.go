@@ -455,3 +455,30 @@ func TestEveryLanguageRendersAllKinds(t *testing.T) {
 		}
 	}
 }
+
+// 中文推送文案一律用全角标点。半角逗号最要命:它和价格里的千分位逗号是同一个
+// 字符,"RMB 600,15.0%" 第一眼会被读成一个数。
+//
+// consoleHeader 与 digestLine 不在此列——那是 dry-run 的终端结构,
+// 和日志同类,半角冒号方括号本来就是等宽文本里的常规写法。
+//
+// 用反射遍历而不是手抄字段名:以后往 phrases 里加文案会自动被这条覆盖,
+// 漏改标点不会编译报错,只会静默推出半角文案。
+func TestChinesePhrasesUseFullWidthPunctuation(t *testing.T) {
+	skip := map[string]bool{"consoleHeader": true, "digestLine": true}
+	halfWidth := []string{":", "(", ")", ","}
+
+	v := reflect.ValueOf(langPhrases[LangZH])
+	for i := range v.NumField() {
+		name := v.Type().Field(i).Name
+		if skip[name] || v.Field(i).Kind() != reflect.String {
+			continue
+		}
+		got := v.Field(i).String()
+		for _, c := range halfWidth {
+			if strings.Contains(got, c) {
+				t.Errorf("中文文案 %s 里有半角 %q:%q", name, c, got)
+			}
+		}
+	}
+}

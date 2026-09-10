@@ -122,6 +122,12 @@ README 是中英两版(`README.md` 英文、`README.zh-CN.md` 中文),内容对�
 **日志与错误信息一律保持中文**,不要顺手翻译:那是给运维和开发者看的,译了没有收益、维护成本翻倍。
 加语言时只需往表里加一项。注意漏填字段**不会**编译报错,只会得到空串并静默推出残缺文案——
 `TestAllLanguagesDefineEveryPhrase` 与 `TestEveryLanguageRendersAllKinds` 专门防这个。
-标点也属于文案的一部分——中文用全角、英文用半角,只换词不换标点会让英文输出很别扭。
+标点也属于文案的一部分,但**只对推送文案而言**:中文用全角、英文用半角。
+只换词不换标点会让英文输出很别扭;中文这边半角逗号更要命——它和价格里的千分位
+逗号是同一个字符,「RMB 600,15.0%」第一眼会被读成一个数。
+`TestChinesePhrasesUseFullWidthPunctuation` 用反射遍历 phrases 防这个,
+新加的文案会自动纳入,不必手动登记。
+**日志、`consoleHeader` 这类终端输出以及代码注释一律保持半角**,
+那是等宽文本里的常规写法,不要顺手一起改成全角。
 `EventKind` 只保留语言中立的 `listed` / `price_drop` / `delisted`;
 展示用的 label 属于 notify 层,不要再往 state 里塞 `Label()` 之类的方法。
