@@ -249,3 +249,38 @@ categories: [mac]
 		t.Errorf("未配置时应保持中文以免升级后推送换语言,实际 %q", cfg.Notify.Lang)
 	}
 }
+
+// 开了 fill_missing_memory 却没有规则约束内存时,补齐会被整个跳过。
+// 这是对的,但必须说出来——否则用户会以为它在生效,等到「怎么还是漏机型」时无从下手。
+func TestFillMissingMemoryWithoutMemoryRuleWarns(t *testing.T) {
+	const body = "regions: [CN]\ncategories: [mac]\n" +
+		"http:\n  fill_missing_memory: true\n" +
+		"rules:\n  - name: 只按机型\n    dimensions:\n      refurbClearModel: [macbookpro]\n"
+	_, warnings, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasWarning(warnings, "fill_missing_memory") {
+		t.Errorf("应当警告补齐不会生效,实际警告:%v", warnings)
+	}
+
+	const withMemory = "regions: [CN]\ncategories: [mac]\n" +
+		"http:\n  fill_missing_memory: true\n" +
+		"rules:\n  - name: 按内存\n    dimensions:\n      tsMemorySize: [36gb]\n"
+	_, warnings, err = Load(writeConfig(t, withMemory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasWarning(warnings, "fill_missing_memory") {
+		t.Errorf("有规则按内存过滤时不该警告,实际警告:%v", warnings)
+	}
+}
+
+func hasWarning(warnings []string, substr string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+	return false
+}

@@ -504,8 +504,10 @@ func sortedKeys[V any](m map[string]V) []string {
 // 三条边界:
 //   - 详情页失败绝不影响商品本身。补不到就保持维度缺失,商品照常参与 diff,
 //     否则一次详情页 5xx 会让几十台机器凭空「下架」。
-//   - 结果按货号缓存。同一货号配置固定,查一次就够;否则常驻进程每轮
-//     都要重抓几十个详情页,把「一分类一请求」的设计彻底破坏掉。
+//   - 结果按货号缓存,但**只缓存永久性失败**。同一货号配置固定,查到了就不必再查;
+//     解析失败也不必再查。而超时、5xx 这类传输故障必须留到下一轮重试:
+//     把一次抖动记成「查过没查到」,会让这台机器在整个进程生命周期里再也不被补齐,
+//     按内存过滤的规则从此静默漏掉它——正是本功能要消除的那个问题。
 //   - 只有 ctx 取消才向上返回错误,与抓取列表页时的处理保持一致。
 func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Grid) error {
 	if !r.cfg.HTTP.FillMissingMemory {
@@ -521,7 +523,10 @@ func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Gr
 		return nil
 	}
 
-	var filled, failed, skipped int
+	// unreadable 是本轮判定为「永久读不出」的件数,retryable 是暂时失败、下一轮会重试的件数。
+	// 分开计数才能让日志只在情况有变时说话:known 那批每轮都会命中缓存,
+	// 若把它们也算进告警,常驻进程会每个 interval 重复喊一遍同样的话。
+	var filled, unreadable, retryable, known, skipped int
 	for i := range grid.Products {
 		p := &grid.Products[i]
 		if p.Dimensions[apple.MemoryDimension] != "" {
@@ -536,7 +541,13 @@ func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Gr
 		}
 
 		mem, cached := r.memCache.Get(p.PartNumber)
-		if !cached {
+		if cached {
+			if mem == "" {
+				// 之前已判定为永久读不出,不再发请求也不再告警。
+				known++
+				continue
+			}
+		} else {
 			if err := r.delay(ctx); err != nil {
 				return err
 			}
@@ -546,17 +557,24 @@ func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Gr
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				// 空串同样入缓存:上游永远不给内存的机器不该每轮都被重试一遍。
-				r.memCache.Put(p.PartNumber, "")
+				switch {
+				case apple.IsPermanentMemoryFailure(err):
+					// 页面本身读不出内存,重试多少轮都是同一个结果,记住别再查。
+					r.memCache.Put(p.PartNumber, "")
+					unreadable++
+				case r.memCache.Fail(p.PartNumber):
+					// 连续多轮都是可重试故障,再试下去也只是白发请求。
+					r.log.Warn("详情页连续多轮抓取失败,放弃补齐该商品的内存",
+						"scope", sc.String(), "part", p.PartNumber, "err", err)
+					unreadable++
+				default:
+					// 超时、5xx、连接重置:不入缓存,下一轮重试。
+					retryable++
+				}
 				r.log.Debug("详情页未能补齐内存", "scope", sc.String(), "part", p.PartNumber, "err", err)
-				failed++
 				continue
 			}
 			r.memCache.Put(p.PartNumber, mem)
-		}
-		if mem == "" {
-			failed++
-			continue
 		}
 
 		// 维度 map 直接来自解析结果,可能是 nil。
@@ -567,9 +585,17 @@ func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Gr
 		filled++
 	}
 
-	if filled > 0 || failed > 0 || skipped > 0 {
-		r.log.Debug("内存维度补齐完成", "scope", sc.String(),
-			"filled", filled, "failed", failed, "skipped", skipped, "cached", r.memCache.Len())
+	// 补不到就等于回到「按内存过滤的规则静默漏掉这档机型」,而这正是本功能要消除的问题,
+	// 因此必须在默认日志级别(info)下看得见,不能只留在 Debug 里。
+	// 只对本轮新出现的失败告警:known 那批每轮都命中缓存,一起算会变成每个 interval 刷一遍。
+	if unreadable > 0 || retryable > 0 {
+		r.log.Warn("部分商品的内存维度未能补齐,按内存过滤的规则会漏掉它们",
+			"scope", sc.String(), "unreadable", unreadable, "retryable", retryable)
+	}
+	if filled > 0 || known > 0 || skipped > 0 {
+		r.log.Debug("内存维度补齐完成", "scope", sc.String(), "filled", filled,
+			"unreadable", unreadable, "retryable", retryable, "known", known,
+			"skipped", skipped, "cached", r.memCache.Len())
 	}
 	return nil
 }

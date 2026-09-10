@@ -195,5 +195,24 @@ func (c *Config) Validate() (warnings []string, err error) {
 	if len(c.Rules) == 0 {
 		warnings = append(warnings, "未配置任何过滤规则,将监控所选地区/分类下的全部商品")
 	}
+	// 开了开关却没有规则用到该维度时,补齐逻辑会整个跳过——这是对的(补了也改变不了
+	// 推送结果),但沉默会让人以为在生效,等到「怎么还是漏机型」时无从下手。
+	if c.HTTP.FillMissingMemory && !rulesUseDimension(c.Rules, apple.MemoryDimension) {
+		warnings = append(warnings, fmt.Sprintf(
+			"fill_missing_memory 已开启,但没有任何规则约束 %s,补齐不会改变推送结果,已跳过",
+			apple.MemoryDimension))
+	}
 	return warnings, nil
+}
+
+// rulesUseDimension 报告是否有规则约束了这个维度键。大小写敏感,与 filter 的匹配一致:
+// 维度键要与上游字面一致才匹配得上,这里跟着严格比较,才不会把写错大小写的规则
+// 报成「已在用」。
+func rulesUseDimension(rules []filter.Rule, key string) bool {
+	for _, r := range rules {
+		if _, ok := r.Dimensions[key]; ok {
+			return true
+		}
+	}
+	return false
 }

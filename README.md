@@ -321,14 +321,27 @@ when your rules filter by memory.
   known from the grid (`dimensionCapacity`), so it is used as an anchor to exclude that
   entry; the single remaining one is the memory. If more or fewer than one remains, the
   parse is abandoned — guessing would match a rule against a differently specced
-  machine, which is worse than not reading it at all. Verified against 14 regions
-  (US JP DE FR UK KR IT ES NL CH TW CA AU; HK currently has nothing to fill in),
-  including the French store's `24 Go` — a non-breaking space with French units.
+  machine, which is worse than not reading it at all. A product whose grid data carries
+  no `dimensionCapacity` at all is abandoned for the same reason: with no anchor, a page
+  listing a single capacity would hand back the storage size as if it were memory.
+  Verified against 14 regions (US JP DE FR UK KR IT ES NL CH TW CA AU; HK currently has
+  nothing to fill in), including the French store's `24 Go` — a non-breaking space with
+  French units.
 - **Failure never affects the product.** On a 5xx or a page redesign the product is
   kept as-is with the memory dimension left empty; it is never mistaken for a delisting.
-- **Results are cached per part number.** A part number's configuration is fixed, so one
-  lookup suffices. After the first round only newly listed products cost an extra
-  request, and "looked up, found nothing" is remembered too rather than retried forever.
+  It is logged at WARN, though: an unfilled product is back to being silently missed by
+  your memory rules, which is exactly what this option exists to prevent.
+- **Results are cached per part number, but only failures that cannot improve.** A part
+  number's configuration is fixed, so one successful lookup suffices; a page that simply
+  does not state the memory is remembered as such rather than retried forever. Timeouts,
+  5xx and connection resets are **not** cached — they are retried next round, because
+  treating one hiccup as permanent would drop that machine out of your memory rules for
+  the rest of the process's life. Retrying is capped at three rounds per part number,
+  though: if upstream keeps failing, retrying forever would not read the memory either
+  and would only keep hammering the store.
+- **Enabling it without a memory rule is reported at startup.** The fill is skipped
+  entirely in that case (it could not change any notification), and the startup warning
+  says so instead of leaving you to wonder why nothing changed.
 - **Categories with no memory dimension are skipped entirely**, watch among them. This
   is not merely about saving requests: in testing, watch detail pages yielded a
   "memory" for all 28 products — actually the storage capacity — which would have

@@ -264,3 +264,105 @@ func TestFillMissingMemorySkipsProductsRuledOutByGrid(t *testing.T) {
 		t.Errorf("只该为可能命中的那一件发请求,实际 %d 个", hits.Load())
 	}
 }
+
+// 传输故障(超时、5xx)绝不能被记成「查过没查到」:一次抖动就让这台机器在整个
+// 进程生命周期里再也不被补齐,按内存过滤的规则会从此静默漏掉它——
+// 而消除这种静默漏掉正是补齐功能存在的理由。
+func TestFillMissingMemoryRetriesTransientFailure(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "apple", "testdata", "detail.html"))
+	if err != nil {
+		t.Fatalf("读取详情页 fixture: %v", err)
+	}
+	var down atomic.Bool
+	down.Store(true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			http.Error(w, "upstream hiccup", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+
+	r := newMemoryRunner(t, true)
+	sc := macScope(t)
+	newGrid := func() *apple.Grid {
+		return &apple.Grid{Products: []apple.Product{
+			{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+			{PartNumber: "B", URL: srv.URL + "/b", Dimensions: map[string]string{"dimensionCapacity": "2tb"}},
+		}}
+	}
+
+	g := newGrid()
+	if err := r.fillMissingMemory(context.Background(), sc, g); err != nil {
+		t.Fatalf("详情页 5xx 不该向上返回错误: %v", err)
+	}
+	if _, ok := g.Products[1].Dimensions["tsMemorySize"]; ok {
+		t.Error("补不到时不该写入内存维度")
+	}
+
+	down.Store(false)
+	g = newGrid()
+	if err := r.fillMissingMemory(context.Background(), sc, g); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Products[1].Dimensions["tsMemorySize"]; got != "36gb" {
+		t.Errorf("上游恢复后应当补齐成 36gb,实际 %q——传输故障被误当成永久失败缓存了", got)
+	}
+}
+
+// 解析层面的失败反过来必须只查一次:上游永远不给内存的机器不该每轮都被重抓一遍。
+func TestFillMissingMemoryCachesUnreadablePage(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte("<html><body>这个页面没有概述栏</body></html>"))
+	}))
+	t.Cleanup(srv.Close)
+
+	r := newMemoryRunner(t, true)
+	sc := macScope(t)
+	for round := 1; round <= 3; round++ {
+		g := &apple.Grid{Products: []apple.Product{
+			{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+			{PartNumber: "NOOVERVIEW", URL: srv.URL + "/n", Dimensions: map[string]string{"dimensionCapacity": "2tb"}},
+		}}
+		if err := r.fillMissingMemory(context.Background(), sc, g); err != nil {
+			t.Fatalf("第 %d 轮: %v", round, err)
+		}
+	}
+	if hits.Load() != 1 {
+		t.Errorf("解析失败是永久的,三轮下来只该发 1 个请求,实际 %d 个", hits.Load())
+	}
+}
+
+// 重试也要有上限:上游持续 5xx 或把详情页整个封了,每轮为同一批商品重发几十个请求
+// 既补不到内存,又白白加重上游负担。与 maxRollbacks 同一个道理。
+func TestFillMissingMemoryStopsRetryingAfterRepeatedFailure(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		// 403 而不是 5xx:同样属于「不是页面读不出内存」的可重试故障(WAF 拦截会这样),
+		// 但 c.get 不会为它退避重试,测试因此不必等几轮指数退避。
+		http.Error(w, "blocked", http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	r := newMemoryRunner(t, true)
+	sc := macScope(t)
+	for round := 1; round <= 6; round++ {
+		g := &apple.Grid{Products: []apple.Product{
+			{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+			{PartNumber: "DOWN", URL: srv.URL + "/down", Dimensions: map[string]string{"dimensionCapacity": "2tb"}},
+		}}
+		if err := r.fillMissingMemory(context.Background(), sc, g); err != nil {
+			t.Fatalf("第 %d 轮: %v", round, err)
+		}
+	}
+	// 403 不退避重试,故每轮 1 次;攒够 3 轮后放弃,后 3 轮走缓存不再发请求。
+	if got := hits.Load(); got != 3 {
+		t.Errorf("攒够 3 轮后应当放弃重试,期望 3 次请求,实际 %d 次", got)
+	}
+}

@@ -23,13 +23,20 @@
   解析判据是**语言无关**的:概述栏里恰好两个带容量单位的条目(内存与存储),
   用列表页已知的 `dimensionCapacity` 作锚点排除存储,剩下唯一一条就是内存;
   剩余不是恰好一条就放弃——猜错会让规则匹配到配置完全不同的机器,比读不到更糟。
+  **`dimensionCapacity` 缺失时必须直接放弃**:没有锚点就排除不掉存储条目,
+  而只列出一条容量的页面会把存储当成内存交回来(实测 watch 详情页正是这样)。
+  `scopeHasMemory` 那道分类闸只挡得住整类没有内存维度的分类,挡不住同一分类里
+  个别既无 `tsMemorySize` 也无 `dimensionCapacity` 的商品,
+  `TestParseOverviewMemoryRequiresCapacityAnchor` 守着这条。
   见 `internal/apple/detail.go`,这是第二个脆弱解析点。
   已在 14 个地区实测通过(US JP DE FR UK KR IT ES NL CH TW CA AU,HK 当前无缺失商品)。
 - **容量文本里的空白同样混用 Unicode 码位**,与标题那条是同一个坑的两处现场:
   实测法国站写的是 "24\u00a0Go"(不间断空格 + 法语单位 Go/To)。
   Go 的 `\s` 只等价于 `[\t\n\f\r ]`,**不含 U+00A0**,
   只写 `\s*` 会让整个法国站一条容量条目都匹配不到、补齐静默失效。
-  `detail.go` 的 `unicodeSpaces` 因此逐个列出码位,同样**必须写成 `\x{...}` 转义**。
+  `detail.go` 的 `unicodeSpaces` 因此用 `\p{Zs}` 整类而不是手抄码位表——
+  Zs 里有十几个码位,手抄表漏一个的失败方式同样是静默的;`\s` 仍要留着,
+  它含 `\t\n\f\r` 而这些不属于 Zs。
   `TestParseOverviewMemoryUnicodeSpaces` 与 `TestParseOverviewMemoryFrenchUnits` 防这个回归——
   后者的码位得用 `nbsp := "\u00a0"` 拼进反引号字符串:
   反引号是原始字符串,里面的 `\u00a0` 只是六个字面字符,那样测试照样通过却防不住任何东西。
@@ -42,12 +49,28 @@
   且不再徒劳地去查 Studio Display 这类根本没有内存的商品(failed 从 13 降到 0)。
   判据见 `filter.MayMatchWithout` 与 `filter.UsesDimension`。
   四条边界由测试守着:详情页失败必须保留商品原样(否则一次 5xx 会让几十台机器凭空下架,
-  `TestFillMissingMemoryFailureKeepsProduct`);结果按货号缓存且「查过没查到」也要记住
+  `TestFillMissingMemoryFailureKeepsProduct`);结果按货号缓存
   (`TestFillMissingMemoryCachesAcrossRounds`);没有任何规则按内存过滤时整个跳过
   (`TestFillMissingMemorySkipsWhenNoRuleUsesMemory`);**整个分类都没有内存维度时一件都不抓**
   (`TestFillMissingMemorySkipsCategoryWithoutMemory`)——最后这条不只是省请求:
   实测 watch 的详情页会让 28 件手表全部「解析出内存」,那其实是表壳存储容量,
   不设这道闸就会把脏数据写进 `tsMemorySize`。
+- **缓存里只许躺永久性失败**。`IsPermanentMemoryFailure` 把「页面读不出内存」
+  (`ErrNoOverview`/`ErrOverviewDecode`/`ErrMemoryAmbiguous`/`ErrProductGone`)
+  与「这次没读到」(超时、5xx、连接重置)分开:前者重试多少轮都是同一个结果,
+  记进缓存不再查;后者**绝不能入缓存**——一次抖动就让该货号在整个进程生命周期里
+  再也不被补齐,按内存过滤的规则从此静默漏掉它,而那正是这个功能要消除的问题。
+  `TestFillMissingMemoryRetriesTransientFailure` 与
+  `TestFillMissingMemoryCachesUnreadablePage` 一正一反守着。
+  但重试必须有上限(`maxMemoryAttempts`,同一货号 3 轮),理由与 `maxRollbacks` 完全相同:
+  上游持续 5xx 或把详情页整个封了,无限重试既补不到内存,又让每一轮都为同一批商品
+  白发几十个请求。`TestFillMissingMemoryStopsRetryingAfterRepeatedFailure` 防这个。
+  详情页 404 用单独的 `ErrProductGone` 而不复用 `ErrCategoryNotAvailable`:
+  翻新品常在抓列表与抓详情之间被买走,后者的文案会把运维引向 `categories` 配置。
+  补齐失败打 **Warn**(不是 Debug):默认 `log_level: info`,留在 Debug 就又成了静默失效;
+  但只对本轮新出现的失败告警,已缓存的那批每轮都命中缓存,一起算会每个 interval 刷一遍。
+- **开了 `fill_missing_memory` 却没有规则约束 `tsMemorySize` 时,`Validate` 给 warning**。
+  补齐确实该整个跳过(补了也改变不了推送结果),但沉默会让人以为它在生效。
 - **芯片型号与 CPU/GPU 核心数不在 dimensions 里,只在 `title` 字符串**,且各语言语序完全不同:
   FR「puce Apple M4, CPU 10 cœurs」型号在指示词之后、数字在量词之前;
   IT/ES「chip Apple M2, CPU 8-core」;NL「Apple M4-chip」用连字符连写;

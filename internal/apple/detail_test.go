@@ -2,6 +2,7 @@ package apple
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -129,6 +130,39 @@ func TestParseOverviewMemoryUnicodeSpaces(t *testing.T) {
 		mem, err := ParseOverviewMemory(html, "1tb")
 		if err != nil || mem != "48gb" {
 			t.Errorf("%s: 期望 48gb,实际 %q err=%v", name, mem, err)
+		}
+	}
+}
+
+// 没有存储锚点时必须放弃,而不是把唯一的容量条目当成内存。
+// 实测 watch 详情页只有一条容量(表壳存储),不设这道闸就会把它写进 tsMemorySize。
+func TestParseOverviewMemoryRequiresCapacityAnchor(t *testing.T) {
+	html := []byte(`window.pageLevelData.Overview = {"tiles":{"groups":{"items":[` +
+		`{"value":{"mutiValueAttributeSelector":{"attributeList":{"items":[` +
+		`{"value":"32GB 存储容量"}]}}}}]}}};` + "\n")
+	mem, err := ParseOverviewMemory(html, "")
+	if !errors.Is(err, ErrMemoryAmbiguous) {
+		t.Errorf("缺少锚点时应报 ErrMemoryAmbiguous,实际 mem=%q err=%v", mem, err)
+	}
+}
+
+// 解析层面的失败是永久的(重试无用),传输层面的失败不是——调用方据此决定要不要
+// 把「查过没查到」记进缓存。混为一谈会让一次超时永久废掉一个货号的补齐。
+func TestIsPermanentMemoryFailure(t *testing.T) {
+	permanent := []error{ErrNoOverview, ErrOverviewDecode, ErrMemoryAmbiguous, ErrProductGone}
+	for _, e := range permanent {
+		if !IsPermanentMemoryFailure(fmt.Errorf("包一层: %w", e)) {
+			t.Errorf("%v 应判为永久性失败", e)
+		}
+	}
+	transient := []error{
+		errors.New("dial tcp: i/o timeout"),
+		&httpError{Status: 503, URL: "https://example.com/p"},
+		fmt.Errorf("重试 3 次后仍失败: %w", &httpError{Status: 500}),
+	}
+	for _, e := range transient {
+		if IsPermanentMemoryFailure(e) {
+			t.Errorf("%v 不该判为永久性失败,否则一次抖动会永久废掉这个货号的补齐", e)
 		}
 	}
 }
