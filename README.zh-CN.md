@@ -7,7 +7,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/hh-io/refurb-sentry)](https://goreportcard.com/report/github.com/hh-io/refurb-sentry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-监控 Apple 官网**官方翻新产品**的上架、降价与下架,按规格过滤后推送到 Bark / Telegram 等渠道。
+监控 Apple 官网**官方翻新产品**(官翻机)的上架、降价与下架,按规格过滤后推送到 Bark / Telegram 等渠道。
 
 单个静态二进制,常驻运行,状态落地为一个 JSON 文件,重启不丢。
 
