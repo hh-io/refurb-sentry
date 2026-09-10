@@ -81,6 +81,10 @@ CI(`.github/workflows/ci.yml`)在每次 push / PR 上跑同样的三项检查。
 (`.goreleaser.yaml`)构建 darwin/linux 的 amd64、arm64、armv7 归档并发布 release。
 版本号通过 `-ldflags -X main.version=` 注入,`go install` 装的会显示 `dev`。
 
+`assets/icon.png`(推送通知图标)是 `assets/make-icon.py` 生成的,改配色或尺寸重跑脚本,
+不要手工改 PNG。刻意没用 Apple 的商标图形——README 已声明与 Apple 无关,
+拿官方 logo 当图标与之矛盾,也是这类第三方工具最容易被投诉的点。
+
 新增地区:在 `internal/apple/regions.go` 的表里加一行即可,启动校验会验证可用性。
 新货币记得同时在 `internal/apple/model.go` 的符号表里补一项,否则会退化成 "XXX 999" 的展示。
 实测 MX、IN 没有翻新店(返回 404),不要加。
