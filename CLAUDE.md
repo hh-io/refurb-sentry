@@ -24,10 +24,16 @@
   用列表页已知的 `dimensionCapacity` 作锚点排除存储,剩下唯一一条就是内存;
   剩余不是恰好一条就放弃——猜错会让规则匹配到配置完全不同的机器,比读不到更糟。
   见 `internal/apple/detail.go`,这是第二个脆弱解析点。
-  三条边界由测试守着:详情页失败必须保留商品原样(否则一次 5xx 会让几十台机器凭空下架,
+  补齐是**懒的**:只有「除内存外其余条件都还可能命中某条规则」的商品才会去看详情页。
+  机型、芯片、容量、价格列表页都已给全,凭它们就能否决的商品再看详情页也是白看——
+  内存是它唯一还没定的条件时才值得查。实测 CN mac 因此从 45 个请求降到 19 个,
+  且不再徒劳地去查 Studio Display 这类根本没有内存的商品(failed 从 13 降到 0)。
+  判据见 `filter.MayMatchWithout` 与 `filter.UsesDimension`。
+  四条边界由测试守着:详情页失败必须保留商品原样(否则一次 5xx 会让几十台机器凭空下架,
   `TestFillMissingMemoryFailureKeepsProduct`);结果按货号缓存且「查过没查到」也要记住
-  (`TestFillMissingMemoryCachesAcrossRounds`);**整个分类都没有内存维度时一件都不抓**
-  (`TestFillMissingMemorySkipsCategoryWithoutMemory`)——这条不只是省请求:
+  (`TestFillMissingMemoryCachesAcrossRounds`);没有任何规则按内存过滤时整个跳过
+  (`TestFillMissingMemorySkipsWhenNoRuleUsesMemory`);**整个分类都没有内存维度时一件都不抓**
+  (`TestFillMissingMemorySkipsCategoryWithoutMemory`)——最后这条不只是省请求:
   实测 watch 的详情页会让 28 件手表全部「解析出内存」,那其实是表壳存储容量,
   不设这道闸就会把脏数据写进 `tsMemorySize`。
 - **芯片型号与 CPU/GPU 核心数不在 dimensions 里,只在 `title` 字符串**,且各语言语序完全不同:

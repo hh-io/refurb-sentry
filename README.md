@@ -331,9 +331,16 @@ when your rules filter by memory.
   is not merely about saving requests: in testing, watch detail pages yielded a
   "memory" for all 28 products — actually the storage capacity — which would have
   polluted `tsMemorySize`.
+- **Looked up on demand, not for everything.** Only products that could still match a
+  rule once memory is set off are fetched. Model, chip, capacity and price all come
+  from the grid; a product those already rule out will not match however much memory it
+  turns out to have. The more specific your rules, the fewer lookups — and if no rule
+  filters by memory, none happen at all.
 
-The cost is a slower first round (45 extra requests for CN mac, roughly 2 minutes at
-the default 1-3s spacing). Steady-state rounds cost almost nothing extra.
+The cost is a slower first round, scaling with how specific your rules are. Measured
+with the MacBook Pro rule shown above: of the 58 CN mac products missing memory, only
+19 were worth looking up (about 50 seconds at the default 1-3s spacing); the other 39
+were ruled out from the grid alone. Steady-state rounds cost almost nothing extra.
 
 ---
 

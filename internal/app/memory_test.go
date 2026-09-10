@@ -38,9 +38,14 @@ func detailServer(t *testing.T, hits *atomic.Int64) *httptest.Server {
 	return srv
 }
 
+// newMemoryRunner 的规则集刻意按内存过滤:补齐只为按内存过滤的规则服务,
+// 空规则集会让整个补齐被跳过(见 TestFillMissingMemorySkipsWhenNoRuleUsesMemory)。
 func newMemoryRunner(t *testing.T, fill bool) *Runner {
 	t.Helper()
-	rules, err := filter.New(nil)
+	rules, err := filter.New([]filter.Rule{{
+		Name:       "按内存过滤",
+		Dimensions: map[string][]string{"tsMemorySize": {"36gb", "48gb"}},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,5 +193,74 @@ func TestFillMissingMemoryCachesAcrossRounds(t *testing.T) {
 	// 两件缺内存的商品各查一次(一成一败),后两轮全部走缓存。
 	if hits.Load() != 2 {
 		t.Errorf("三轮下来只该发 2 个请求,实际 %d 个", hits.Load())
+	}
+}
+
+// 没有任何规则按内存过滤时,补齐改变不了任何推送结果,一个请求都不该发。
+func TestFillMissingMemorySkipsWhenNoRuleUsesMemory(t *testing.T) {
+	var hits atomic.Int64
+	srv := detailServer(t, &hits)
+	r := newMemoryRunner(t, true)
+	rules, err := filter.New([]filter.Rule{{
+		Name:       "只按机型",
+		Dimensions: map[string][]string{"refurbClearModel": {"macbookpro"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rules = rules
+
+	grid := &apple.Grid{Products: []apple.Product{
+		{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+		{PartNumber: "B", URL: srv.URL + "/b", Dimensions: map[string]string{
+			"refurbClearModel": "macbookpro", "dimensionCapacity": "2tb"}},
+	}}
+	if err := r.fillMissingMemory(context.Background(), macScope(t), grid); err != nil {
+		t.Fatal(err)
+	}
+	if hits.Load() != 0 {
+		t.Errorf("没有规则按内存过滤时不该发请求,实际 %d 个", hits.Load())
+	}
+}
+
+// 懒加载:列表页已经能判定不可能命中的商品,不必再为它抓详情页。
+// 内存是它唯一还没定的条件时才值得查,其余条件已经否决它时查了也是白查。
+func TestFillMissingMemorySkipsProductsRuledOutByGrid(t *testing.T) {
+	var hits atomic.Int64
+	srv := detailServer(t, &hits)
+	r := newMemoryRunner(t, true)
+	rules, err := filter.New([]filter.Rule{{
+		Name: "MacBook Pro 高配",
+		Dimensions: map[string][]string{
+			"refurbClearModel": {"macbookpro"},
+			"tsMemorySize":     {"36gb", "48gb"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rules = rules
+
+	grid := &apple.Grid{Products: []apple.Product{
+		{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+		// 机型对得上,内存未知——值得查。
+		{PartNumber: "PRO", URL: srv.URL + "/pro", Dimensions: map[string]string{
+			"refurbClearModel": "macbookpro", "dimensionCapacity": "2tb"}},
+		// 机型就不对,内存再合适也不会命中——不该查。
+		{PartNumber: "DISPLAY", URL: srv.URL + "/display", Dimensions: map[string]string{
+			"refurbClearModel": "display", "dimensionCapacity": "2tb"}},
+	}}
+	if err := r.fillMissingMemory(context.Background(), macScope(t), grid); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := grid.Products[1].Dimensions["tsMemorySize"]; got != "36gb" {
+		t.Errorf("可能命中的商品应被补齐,实际 %q", got)
+	}
+	if _, ok := grid.Products[2].Dimensions["tsMemorySize"]; ok {
+		t.Error("列表页已否决的商品不该被补齐")
+	}
+	if hits.Load() != 1 {
+		t.Errorf("只该为可能命中的那一件发请求,实际 %d 个", hits.Load())
 	}
 }

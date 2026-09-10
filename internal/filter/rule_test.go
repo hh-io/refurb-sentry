@@ -158,3 +158,85 @@ func TestInvalidRulesRejected(t *testing.T) {
 		})
 	}
 }
+
+// UsesDimension 决定要不要为补齐某个维度多发请求:没规则用到它就一个都不该发。
+func TestUsesDimension(t *testing.T) {
+	set, err := New([]Rule{
+		{Name: "按机型", Dimensions: map[string][]string{"refurbClearModel": {"macbookpro"}}},
+		{Name: "按内存", Dimensions: map[string][]string{"tsMemorySize": {"48gb"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set.UsesDimension("tsMemorySize") {
+		t.Error("有规则约束 tsMemorySize,应当报告为已使用")
+	}
+	if set.UsesDimension("dimensionCapacity") {
+		t.Error("没有规则约束 dimensionCapacity,不该报告为已使用")
+	}
+
+	empty, err := New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.UsesDimension("tsMemorySize") {
+		t.Error("空规则集放行一切,不依赖任何维度,补齐它没有意义")
+	}
+}
+
+// MayMatchWithout 是懒加载的判据:列表页已能否决的商品不必再去抓详情页。
+func TestMayMatchWithout(t *testing.T) {
+	set, err := New([]Rule{{
+		Name:       "MacBook Pro 高配",
+		Categories: []string{"mac"},
+		Dimensions: map[string][]string{
+			"refurbClearModel":  {"macbookpro"},
+			"tsMemorySize":      {"32gb", "48gb"},
+			"dimensionCapacity": {"1tb", "2tb"},
+		},
+		Chips: []string{"M5 Pro"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const proTitle = "翻新 16 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 18 核中央处理器和 20 核图形处理器) - 银色"
+	const maxTitle = "翻新 16 英寸 MacBook Pro Apple M5 Max 芯片 (配备 18 核中央处理器和 32 核图形处理器) - 银色"
+
+	cases := []struct {
+		desc  string
+		title string
+		dims  map[string]string
+		want  bool
+	}{
+		{"其余条件都满足,只差内存未知", proTitle,
+			map[string]string{"refurbClearModel": "macbookpro", "dimensionCapacity": "1tb"}, true},
+		{"芯片就不对,内存再合适也没用", maxTitle,
+			map[string]string{"refurbClearModel": "macbookpro", "dimensionCapacity": "1tb"}, false},
+		{"机型不对", proTitle,
+			map[string]string{"refurbClearModel": "display", "dimensionCapacity": "1tb"}, false},
+		{"容量不在候选里", proTitle,
+			map[string]string{"refurbClearModel": "macbookpro", "dimensionCapacity": "512gb"}, false},
+	}
+	for _, c := range cases {
+		p := apple.Product{Region: "CN", Category: "mac", Title: c.title, Dimensions: c.dims}
+		if got := set.MayMatchWithout(p, ParseSpec(c.title), "tsMemorySize"); got != c.want {
+			t.Errorf("%s: 期望 %v,实际 %v", c.desc, c.want, got)
+		}
+	}
+}
+
+// 忽略某维度只影响该维度,其余条件必须照常生效——否则懒加载会退化成「全都抓」。
+func TestMayMatchWithoutOnlyConsidersRulesUsingIt(t *testing.T) {
+	set, err := New([]Rule{{
+		Name:       "只按机型,不关心内存",
+		Dimensions: map[string][]string{"refurbClearModel": {"macbookpro"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := apple.Product{Region: "CN", Category: "mac", Dimensions: map[string]string{"refurbClearModel": "macbookpro"}}
+	if set.MayMatchWithout(p, Spec{}, "tsMemorySize") {
+		t.Error("规则不依赖 tsMemorySize,补齐它不会改变结论,不该为它发请求")
+	}
+}

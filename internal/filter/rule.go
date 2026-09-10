@@ -109,7 +109,42 @@ func (s *Set) Match(p apple.Product, spec Spec) (bool, []string) {
 // Empty 表示未配置任何规则,即放行全部商品。
 func (s *Set) Empty() bool { return len(s.rules) == 0 }
 
+// UsesDimension 报告是否有规则约束了这个维度。
+// 没有任何规则用到它时,补齐它不会改变任何推送结果,那些请求就都是白发的。
+func (s *Set) UsesDimension(key string) bool {
+	for _, r := range s.rules {
+		if _, ok := r.dimensionSet[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// MayMatchWithout 判断在忽略某个维度的前提下,商品是否还有可能命中某条规则。
+//
+// 用途是决定值不值得为这件商品多发一个请求去补齐该维度:机型、芯片、价格这些
+// 列表页就已经给全了,凭它们已能判定不可能命中的商品,再去看详情页也是白看。
+//
+// 只考察**用到了该维度**的规则:其余规则的结论不依赖它,补与不补结果一样。
+func (s *Set) MayMatchWithout(p apple.Product, spec Spec, ignore string) bool {
+	for _, r := range s.rules {
+		if _, ok := r.dimensionSet[ignore]; !ok {
+			continue
+		}
+		if r.matchesIgnoring(p, spec, ignore) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Rule) matches(p apple.Product, spec Spec) bool {
+	return r.matchesIgnoring(p, spec, "")
+}
+
+// matchesIgnoring 跳过 ignore 指定的维度键做匹配。ignore 为空串时等同于完整匹配——
+// 维度键为空串的规则在 New 里就没有意义,不必额外设哨兵。
+func (r *Rule) matchesIgnoring(p apple.Product, spec Spec, ignore string) bool {
 	if len(r.regionSet) > 0 && !r.regionSet[strings.ToLower(p.Region)] {
 		return false
 	}
@@ -123,6 +158,9 @@ func (r *Rule) matches(p apple.Product, spec Spec) bool {
 		return false
 	}
 	for key, allowed := range r.dimensionSet {
+		if key == ignore {
+			continue
+		}
 		// 商品缺少该维度时视为不匹配:规则明确要求了这个条件。
 		if !allowed[strings.ToLower(p.Dimensions[key])] {
 			return false
