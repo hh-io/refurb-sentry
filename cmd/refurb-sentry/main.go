@@ -133,7 +133,7 @@ func buildNotifiers(cfg *config.Config, dryRun bool) ([]notify.Notifier, error) 
 		case "bark":
 			n, err := notify.NewBark(notify.BarkOptions{
 				Name: ch.Name, Server: ch.Server, DeviceKey: ch.DeviceKey,
-				Sound: ch.Sound, Timeout: ch.Timeout.Std(),
+				Sound: ch.Sound, Icon: ch.Icon, Timeout: ch.Timeout.Std(),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("channels[%d]: %w", i, err)

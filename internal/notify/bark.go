@@ -15,12 +15,13 @@ import (
 const DefaultBarkServer = "https://api.day.app"
 
 // Bark 走 Bark 的 V2 REST 接口:POST {server}/push,JSON 提交。
-// 字段名依据官方 API V2 文档(device_key / title / body / url / group / sound / isArchive)。
+// 字段名依据官方 API V2 文档(device_key / title / body / url / group / sound / icon / isArchive)。
 type Bark struct {
 	name      string
 	server    string
 	deviceKey string
 	sound     string
+	icon      string
 	hc        *http.Client
 }
 
@@ -29,7 +30,10 @@ type BarkOptions struct {
 	Server    string
 	DeviceKey string
 	Sound     string
-	Timeout   time.Duration
+	// Icon 是通知左侧图标的公网图片 URL,留空则用 Bark 自带图标。
+	// iOS 只认位图,SVG 传进去不显示。
+	Icon    string
+	Timeout time.Duration
 }
 
 func NewBark(opt BarkOptions) (*Bark, error) {
@@ -50,6 +54,7 @@ func NewBark(opt BarkOptions) (*Bark, error) {
 		server:    strings.TrimRight(opt.Server, "/"),
 		deviceKey: opt.DeviceKey,
 		sound:     opt.Sound,
+		icon:      opt.Icon,
 		hc:        &http.Client{Timeout: opt.Timeout},
 	}, nil
 }
@@ -72,6 +77,9 @@ func (b *Bark) Send(ctx context.Context, m Message) error {
 	}
 	if b.sound != "" {
 		payload["sound"] = b.sound
+	}
+	if b.icon != "" {
+		payload["icon"] = b.icon
 	}
 
 	body, err := json.Marshal(payload)

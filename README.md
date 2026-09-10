@@ -234,7 +234,12 @@ channels:
   - type: bark
     device_key: ${BARK_KEY}
     server: https://api.day.app   # point at your own server here
+    sound: ""                     # empty means Bark's default
+    icon: https://raw.githubusercontent.com/hh-io/refurb-sentry/main/assets/icon.png
 ```
+
+`icon` is what shows up on the left of the notification. Any publicly reachable
+bitmap works — iOS ignores SVG. Leave it empty to keep Bark's own icon.
 
 ### Telegram / Discord / anything else
 

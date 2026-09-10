@@ -49,6 +49,9 @@ channels:
     server: https://api.day.app
     device_key: ${BARK_KEY}
     sound: ""
+    # 通知左侧的图标,留空则用 Bark 自带图标。
+    # 必须是公网可访问的位图,iOS 不认 SVG。
+    icon: https://raw.githubusercontent.com/hh-io/refurb-sentry/main/assets/icon.png
 
   # 通用 webhook:改 url / headers / body 即可对接 Telegram、飞书、Server 酱等。
   # 下面是 Telegram 的写法。body 是 text/template 模板,

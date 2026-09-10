@@ -200,7 +200,12 @@ channels:
   - type: bark
     device_key: ${BARK_KEY}
     server: https://api.day.app   # 自建服务端改这里
+    sound: ""                     # 留空用 Bark 默认铃声
+    icon: https://raw.githubusercontent.com/hh-io/refurb-sentry/main/assets/icon.png
 ```
+
+`icon` 是通知左侧显示的图标,任何公网可访问的位图都行——iOS 不认 SVG。
+留空则保持 Bark 自带的图标。
 
 ### Telegram / 飞书 / 其它
 

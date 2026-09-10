@@ -73,6 +73,7 @@ type ChannelConfig struct {
 	Server    string `yaml:"server"`
 	DeviceKey string `yaml:"device_key"`
 	Sound     string `yaml:"sound"`
+	Icon      string `yaml:"icon"`
 
 	// webhook
 	URL     string            `yaml:"url"`

@@ -115,7 +115,10 @@ func TestBarkPayload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b, err := NewBark(BarkOptions{Server: srv.URL, DeviceKey: "kkk", Sound: "minuet"})
+	b, err := NewBark(BarkOptions{
+		Server: srv.URL, DeviceKey: "kkk", Sound: "minuet",
+		Icon: "https://example.com/icon.png",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +128,35 @@ func TestBarkPayload(t *testing.T) {
 	if got["device_key"] != "kkk" || got["group"] != "grp" || got["sound"] != "minuet" {
 		t.Errorf("载荷字段有误: %+v", got)
 	}
+	if got["icon"] != "https://example.com/icon.png" {
+		t.Errorf("icon 未透传: %+v", got["icon"])
+	}
 	if got["isArchive"] != "1" {
 		t.Errorf("isArchive 按官方文档应为字符串 \"1\",实际 %v", got["isArchive"])
+	}
+}
+
+// 未配置 icon 时不能把空串发出去——Bark 收到空 icon 会显示空白图标,
+// 而不是回退到 App 自带图标。sound 同理,两者都必须整个键缺席。
+func TestBarkOmitsEmptyOptionalFields(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer srv.Close()
+
+	b, err := NewBark(BarkOptions{Server: srv.URL, DeviceKey: "kkk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Send(context.Background(), zhRenderer().Event(sampleEvent(state.EventListed))); err != nil {
+		t.Fatalf("推送失败: %v", err)
+	}
+	for _, k := range []string{"icon", "sound"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("未配置的 %s 不应出现在载荷里: %+v", k, got)
+		}
 	}
 }
 
