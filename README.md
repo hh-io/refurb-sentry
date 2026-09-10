@@ -352,10 +352,14 @@ Three deliberate design choices, all aimed at never losing or spamming notificat
 - **A fetch failure never causes a delisting.** Any error skips that category
   without touching state, and an empty result must repeat for several rounds before
   it's believed.
-- **If every channel fails in a round, the baseline does not advance.** Those
-  changes are regenerated and retried next round rather than being swallowed. If
-  only some channels fail, delivery counts as successful and the baseline advances —
-  the failed channels lose that batch, and it's logged at ERROR.
+- **If any change reaches no channel at all, the entire round is rolled back.**
+  Those changes are regenerated and retried next round rather than being swallowed.
+  The in-memory baseline is snapshotted before the diff and restored on failure, so
+  a long-running process genuinely retries instead of merely skipping the disk write.
+  Because the rollback is round-wide, changes that *were* delivered in that round are
+  sent once more on the retry — a duplicate notification beats a lost one. A change
+  that reached at least one channel counts as delivered; the channels that failed
+  lose that batch, and it's logged at ERROR.
 
 ## Development
 

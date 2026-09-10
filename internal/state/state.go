@@ -172,3 +172,44 @@ func (s *State) CountScope(region, category string) int {
 	}
 	return n
 }
+
+// Clone 返回一份深拷贝,供调用方在推送失败时回滚整轮变更。
+//
+// Apply 是原地修改的:事件一旦算出,内存里的旧价格/旧条目就已经被覆盖或删除,
+// 仅仅跳过落盘并不能让下一轮重新产生这批事件——常驻进程下这些变动会被永久吞掉。
+// 因此推送前先留一份快照,全军覆没时整体还原。
+func (s *State) Clone() *State {
+	c := &State{
+		Version:      s.Version,
+		UpdatedAt:    s.UpdatedAt,
+		Items:        make(map[string]Entry, len(s.Items)),
+		EmptyStreak:  make(map[string]int, len(s.EmptyStreak)),
+		Bootstrapped: make(map[string]bool, len(s.Bootstrapped)),
+	}
+	for k, e := range s.Items {
+		// Dimensions 同样复制:当前 Apply 只整体替换该 map 而不原地改写,
+		// 但共享底层 map 会让「快照」这个名字随时可能变成谎言。
+		if e.Dimensions != nil {
+			d := make(map[string]string, len(e.Dimensions))
+			for dk, dv := range e.Dimensions {
+				d[dk] = dv
+			}
+			e.Dimensions = d
+		}
+		c.Items[k] = e
+	}
+	for k, v := range s.EmptyStreak {
+		c.EmptyStreak[k] = v
+	}
+	for k, v := range s.Bootstrapped {
+		c.Bootstrapped[k] = v
+	}
+	return c
+}
+
+// Restore 把状态整体还原成 snapshot 的内容。
+// 刻意做成原地覆盖而非返回新指针:State 指针在 Runner 之外还被持有,
+// 换指针会让退出时落盘的仍是那份已被推进的脏状态。
+func (s *State) Restore(snapshot *State) {
+	*s = *snapshot
+}

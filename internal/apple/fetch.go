@@ -38,7 +38,6 @@ type Client struct {
 	ua         string
 	maxRetries int
 	log        *slog.Logger
-	rnd        *rand.Rand
 }
 
 func NewClient(opt ClientOptions) (*Client, error) {
@@ -95,7 +94,6 @@ func NewClient(opt ClientOptions) (*Client, error) {
 		ua:         opt.UserAgent,
 		maxRetries: opt.MaxRetries,
 		log:        opt.Logger,
-		rnd:        rand.New(rand.NewSource(time.Now().UnixNano())),
 	}, nil
 }
 
@@ -196,7 +194,7 @@ func (c *Client) backoff(attempt int, lastErr error) time.Duration {
 	}
 	d := time.Duration(1<<uint(attempt)) * time.Second
 	d = min(d, 60*time.Second)
-	return d + time.Duration(c.rnd.Int63n(int64(time.Second)))
+	return d + time.Duration(rand.Int63n(int64(time.Second)))
 }
 
 type httpError struct {
@@ -230,9 +228,12 @@ func parseRetryAfter(v string) time.Duration {
 }
 
 // Jitter 返回 [base, base+spread) 内的随机时长,用于打散同一轮内各请求的发出时刻。
+//
+// 用包级 rand 而不是自持一个 *rand.Rand:后者并发不安全,
+// 将来若把抓取改成并行就会变成数据竞争;包级函数的全局源则是加锁的。
 func (c *Client) Jitter(base, spread time.Duration) time.Duration {
 	if spread <= 0 {
 		return base
 	}
-	return base + time.Duration(c.rnd.Int63n(int64(spread)))
+	return base + time.Duration(rand.Int63n(int64(spread)))
 }

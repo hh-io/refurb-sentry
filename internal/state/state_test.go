@@ -211,3 +211,56 @@ func TestFailedScopeStaysUnbootstrapped(t *testing.T) {
 		t.Fatalf("此前失败的范围首次成功时应静默,实际 %+v", evs)
 	}
 }
+
+// 快照必须与原状态完全脱钩:任何共享的底层 map 都会让回滚只还原一半。
+func TestCloneIsolatesSnapshot(t *testing.T) {
+	s := New()
+	now := time.Now()
+	p := prod("A/A", 100000)
+	p.Dimensions = map[string]string{"tsMemorySize": "16GB"}
+	s.Apply("CN", "mac", []apple.Product{p}, now)
+	s.EmptyStreak["CN/watch"] = 2
+
+	snap := s.Clone()
+
+	// 在原状态上做一轮完整变更:降价、上架、下架、streak 归零。
+	cheaper := prod("A/A", 90000)
+	cheaper.Dimensions = map[string]string{"tsMemorySize": "24GB"}
+	s.Apply("CN", "mac", []apple.Product{cheaper, prod("B/A", 200000)}, now)
+	delete(s.EmptyStreak, "CN/watch")
+	s.Bootstrapped["US/mac"] = true
+
+	if got := snap.Items["CN/mac/A/A"].PriceCents; got != 100000 {
+		t.Fatalf("快照价格被原状态改写: %d", got)
+	}
+	if got := snap.Items["CN/mac/A/A"].Dimensions["tsMemorySize"]; got != "16GB" {
+		t.Fatalf("快照 Dimensions 与原状态共享: %q", got)
+	}
+	if _, ok := snap.Items["CN/mac/B/A"]; ok {
+		t.Fatal("快照不应包含拍摄之后新增的商品")
+	}
+	if snap.EmptyStreak["CN/watch"] != 2 {
+		t.Fatal("快照的 EmptyStreak 与原状态共享")
+	}
+	if snap.Bootstrapped["US/mac"] {
+		t.Fatal("快照的 Bootstrapped 与原状态共享")
+	}
+}
+
+// Restore 必须原地覆盖:换指针会让别处持有的 State 仍指向脏状态。
+func TestRestoreOverwritesInPlace(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, now)
+	snap := s.Clone()
+
+	s.Apply("CN", "mac", []apple.Product{prod("A/A", 100000), prod("B/A", 200000)}, now)
+	s.Restore(snap)
+
+	if _, ok := s.Items["CN/mac/B/A"]; ok {
+		t.Fatal("Restore 后不应残留回滚点之后的变更")
+	}
+	if s.CountScope("CN", "mac") != 1 {
+		t.Fatalf("Restore 应还原到 1 条记录,实际 %d", s.CountScope("CN", "mac"))
+	}
+}

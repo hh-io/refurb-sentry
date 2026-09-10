@@ -23,6 +23,12 @@ type scope struct {
 
 func (s scope) String() string { return s.region.Code + "/" + s.category }
 
+// fetched 是一个 scope 一次成功抓取的结果。
+type fetched struct {
+	scope scope
+	grid  *apple.Grid
+}
+
 type Runner struct {
 	cfg    *config.Config
 	client *apple.Client
@@ -111,11 +117,7 @@ func (r *Runner) Run(ctx context.Context) error {
 // 刻意分成「先抓全、再统一比对」两阶段:首轮若有任何地区/分类不可用,
 // 必须在写入任何状态之前失败退出,否则会留下一份只覆盖部分范围的基线。
 func (r *Runner) RunOnce(ctx context.Context) error {
-	type result struct {
-		scope scope
-		grid  *apple.Grid
-	}
-	var results []result
+	var results []fetched
 	var fatal []error
 
 	for i, sc := range r.scopes {
@@ -154,7 +156,7 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			r.log.Warn("部分商品价格无法解析已跳过", "scope", sc.String(), "skipped", grid.Skipped)
 		}
 		r.log.Debug("抓取完成", "scope", sc.String(), "products", len(grid.Products))
-		results = append(results, result{scope: sc, grid: grid})
+		results = append(results, fetched{scope: sc, grid: grid})
 	}
 
 	if len(fatal) > 0 {
@@ -163,8 +165,16 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 	if len(results) == 0 {
 		return fmt.Errorf("本轮所有地区/分类均抓取失败")
 	}
+	return r.settle(ctx, results, time.Now())
+}
 
-	now := time.Now()
+// settle 是 RunOnce 的第二阶段:比对、推送、落盘。
+// 与抓取分离既是为了「先抓全再统一比对」,也让这段无网络依赖的逻辑可以被测试覆盖。
+func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) error {
+	// Apply 会原地推进内存基线,推送失败后仅仅跳过落盘并不能让下一轮重新产生这批事件。
+	// 因此先留一份快照,推送没能全部送达时整体回滚。
+	snapshot := r.st.Clone()
+
 	var events []state.Event
 	baselined, baselinedItems := 0, 0
 	for _, res := range results {
@@ -172,7 +182,9 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		// Apply 会自行判断该范围是否首次成功抓取,首次只落基线不产生事件。
 		fresh := !r.st.IsBootstrapped(region, category)
 		events = append(events, r.st.Apply(region, category, res.grid.Products, now)...)
-		if fresh {
+		// 以 Apply 之后的实际状态为准:抓到空列表时它会攒够 emptyStreakThreshold
+		// 轮才真正建立基线,此前报「已建立基线」是假的。
+		if fresh && r.st.IsBootstrapped(region, category) {
 			baselined++
 			baselinedItems += len(res.grid.Products)
 		}
@@ -183,9 +195,10 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 	}
 
 	if !r.dispatch(ctx, events) {
-		// 一条都没送出去(例如 Bark 宕机)。此时不推进基线,
-		// 让这批变动在下一轮重新产生并重试推送,而不是被永久吞掉。
-		r.log.Error("本轮通知全部推送失败,暂不保存状态,下一轮将重试")
+		// 有事件一条渠道都没送出去(例如 Bark 宕机)。回滚到本轮开始前的基线,
+		// 让这批变动下一轮重新产生并重试推送,而不是被永久吞掉。
+		r.st.Restore(snapshot)
+		r.log.Error("本轮存在未送达的通知,已回滚基线,下一轮将重试")
 		return nil
 	}
 	return r.save()
@@ -193,7 +206,11 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 
 // dispatch 过滤事件并推送。规则匹配放在 diff 之后:
 // 状态库始终记录全部商品,这样日后放宽规则时,早已在架的商品不会被误报成新上架。
-// dispatch 返回 false 表示有消息需要推送、但没有任何一个渠道成功。
+//
+// 返回 false 表示有消息一个渠道都没送出去,调用方据此回滚基线。
+// 逐条推送时只要有一条全败就算整轮失败:回滚是整轮粒度的,
+// 下一轮同批事件会重新产生,已送达的那几条因此可能重复推送一次——
+// 重复优于永久丢失。
 func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 	if len(events) == 0 {
 		r.log.Info("本轮无变化")
@@ -229,15 +246,21 @@ func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 		return sent > 0
 	}
 
-	delivered := 0
+	undelivered := 0
 	for _, ev := range matched {
 		sent, err := r.notif.Send(ctx, r.render.Event(ev))
 		if err != nil {
 			r.log.Error("事件推送存在失败渠道", "part_number", ev.Product.PartNumber, "err", err)
 		}
-		delivered += sent
+		if sent == 0 {
+			undelivered++
+		}
 	}
-	return delivered > 0
+	if undelivered > 0 {
+		r.log.Error("部分事件未送达任何渠道", "undelivered", undelivered, "total", len(matched))
+		return false
+	}
+	return true
 }
 
 func kindRank(k state.EventKind) int {
