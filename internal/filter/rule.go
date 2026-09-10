@@ -111,9 +111,15 @@ func (s *Set) Empty() bool { return len(s.rules) == 0 }
 
 // UsesDimension 报告是否有规则约束了这个维度。
 // 没有任何规则用到它时,补齐它不会改变任何推送结果,那些请求就都是白发的。
-func (s *Set) UsesDimension(key string) bool {
-	for _, r := range s.rules {
-		if _, ok := r.dimensionSet[key]; ok {
+func (s *Set) UsesDimension(key string) bool { return RulesUseDimension(s.rules, key) }
+
+// RulesUseDimension 与 Set.UsesDimension 同一判据,但作用于尚未编译的规则:
+// 配置校验要在 New 之前就回答这个问题。两处各写一遍的话,哪天维度键的比较方式
+// 变了(比如改成大小写不敏感),校验的结论就会和实际行为对不上——
+// 而对不上的表现是「警告说没在用,实际却在用」,又是一次静默的不一致。
+func RulesUseDimension(rules []Rule, key string) bool {
+	for _, r := range rules {
+		if _, ok := r.Dimensions[key]; ok {
 			return true
 		}
 	}
