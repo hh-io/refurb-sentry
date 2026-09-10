@@ -70,7 +70,16 @@ https://www.apple.com.cn/shop/product/...
 
 ### 安装
 
-从 [最新 release](https://github.com/hh-io/refurb-sentry/releases/latest)
+macOS 用 Homebrew:
+
+```bash
+brew install --cask hh-io/tap/refurb-sentry
+```
+
+之后 `brew upgrade --cask refurb-sentry` 就能更新。二进制没有 Apple 签名与公证,
+cask 会在安装时摘掉 quarantine 属性——否则第一次运行会被 Gatekeeper 拦下。
+
+或者从 [最新 release](https://github.com/hh-io/refurb-sentry/releases/latest)
 下载对应平台的归档——支持 macOS 与 Linux 的 amd64 / arm64 / armv7,
 里面包含二进制、示例配置和 systemd / launchd 单元文件:
 

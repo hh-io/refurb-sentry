@@ -90,7 +90,17 @@ MX and IN have no refurbished store at all (404) — don't add them.
 
 ### Install
 
-Grab the archive for your platform from the
+On macOS, via Homebrew:
+
+```bash
+brew install --cask hh-io/tap/refurb-sentry
+```
+
+`brew upgrade --cask refurb-sentry` from then on. The binary is not signed or
+notarised by Apple, so the cask strips the quarantine attribute on install —
+without that, the first run gets stopped by Gatekeeper.
+
+Otherwise, grab the archive for your platform from the
 [latest release](https://github.com/hh-io/refurb-sentry/releases/latest) — macOS
 and Linux, amd64 / arm64 / armv7. It ships the binary, the example config and
 the systemd / launchd unit files:

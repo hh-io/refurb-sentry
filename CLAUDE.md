@@ -86,6 +86,13 @@ CI(`.github/workflows/ci.yml`)在每次 push / PR 上跑同样的三项检查。
 发版是推 `v*` 标签,`.github/workflows/release.yml` 用 GoReleaser
 (`.goreleaser.yaml`)构建 darwin/linux 的 amd64、arm64、armv7 归档并发布 release。
 版本号通过 `-ldflags -X main.version=` 注入,`go install` 装的会显示 `dev`。
+Homebrew 走 **cask 而非 formula**——GoReleaser 从 v2.16 起完全弃用了 `brews`,
+预编译二进制本来就该走 cask。推到 `hh-io/homebrew-tap`,需要仓库 secret
+`HOMEBREW_TAP_GITHUB_TOKEN`(对该 tap 仓库有 contents 写权限的 PAT;
+workflow 自带的 `GITHUB_TOKEN` 只能写当前仓库)。未配置时 `skip_upload` 的模板
+会跳过 cask,不让一个可选渠道拖垮归档与镜像的发布。
+二进制没有 Apple 签名与公证,cask 用 postflight 钩子摘 quarantine 属性,
+否则用户第一次运行就被 Gatekeeper 拦下——这一点在 caveats 里对用户如实写明了。
 同一个 workflow 并行构建并推送 `ghcr.io/hh-io/refurb-sentry` 的 amd64/arm64 镜像
 (根目录 `Dockerfile`,同样注入版本号)。镜像**在构建机的原生架构上交叉编译**而不是靠
 QEMU 模拟目标架构——纯 Go 关掉 CGO 就能直接出目标架构的静态二进制,快一个数量级。

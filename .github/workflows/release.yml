@@ -27,6 +27,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 推 Homebrew cask 到 hh-io/homebrew-tap 用的跨仓库 token。
+          # 未设置时是空串,cask 会被跳过,不影响归档发布。
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
   # 镜像与二进制归档并行发布,互不阻塞。
   docker:

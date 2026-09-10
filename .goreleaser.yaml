@@ -57,3 +57,48 @@ changelog:
 release:
   draft: false
   prerelease: auto
+
+# Homebrew 分发。用 cask 而不是 formula:GoReleaser 从 v2.16 起完全弃用了 brews,
+# 预编译二进制在 Homebrew 里本来就该走 cask。
+# 生成的 cask 同时带 on_macos 与 on_linux 块,Linuxbrew 装的是同一份二进制。
+homebrew_casks:
+  - name: refurb-sentry
+    binaries:
+      - refurb-sentry
+
+    # 没配 HOMEBREW_TAP_GITHUB_TOKEN 时跳过 cask 而不是让整个 release 失败——
+    # 二进制归档和镜像不该被一个可选渠道拖下水。
+    skip_upload: '{{ if eq .Env.HOMEBREW_TAP_GITHUB_TOKEN "" }}true{{ else }}false{{ end }}'
+    homepage: https://github.com/hh-io/refurb-sentry
+    description: Monitor Apple's Certified Refurbished store for listings, price drops and removals
+
+    repository:
+      owner: hh-io
+      name: homebrew-tap
+      branch: main
+      # 需要一个对 homebrew-tap 有 contents 写权限的 token,
+      # 仓库自带的 GITHUB_TOKEN 只能写当前仓库。
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+
+    hooks:
+      post:
+        # 这个二进制没有 Apple 签名与公证,cask 安装时会打上 quarantine,
+        # 不摘掉的话第一次运行就被 Gatekeeper 拦下。caveats 里对用户如实写明了。
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/refurb-sentry"]
+          end
+
+    caveats: |
+      refurb-sentry needs a config file. Start from the example:
+
+        curl -fsSLO https://raw.githubusercontent.com/hh-io/refurb-sentry/main/configs/config.example.yaml
+        refurb-sentry -config config.example.yaml -once -dry-run
+
+      To keep it running in the background, install the launchd agent from
+      the repo (this cask does not register one):
+
+        https://github.com/hh-io/refurb-sentry/tree/main/deploy
+
+      This build is not signed or notarised by Apple. The cask strips the
+      quarantine attribute on install so the binary can run.
