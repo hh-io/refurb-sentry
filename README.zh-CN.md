@@ -11,6 +11,11 @@
 
 单个静态二进制,常驻运行,状态落地为一个 JSON 文件,重启不丢。
 
+<p align="center">
+  <img src="assets/notification.png" width="420"
+       alt="iPhone 锁屏上的两条 Bark 通知:一条降价、一条上架,各自标出命中的规则">
+</p>
+
 ## 推送长什么样
 
 ```
