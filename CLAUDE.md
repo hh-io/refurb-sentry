@@ -82,7 +82,7 @@ CI(`.github/workflows/ci.yml`)在每次 push / PR 上跑同样的三项检查。
 版本号通过 `-ldflags -X main.version=` 注入,`go install` 装的会显示 `dev`。
 
 `assets/icon.png`(推送通知图标)采用 macOSicons 上的 Apple Store 图标(https://macosicons.com/?icon=ijSPtRVRMC),
-规格为 512x512 PNG。`assets/make-icon.py` 为此前纯代码生成的自制图标脚本,保留供参考。
+规格为原始 1024x1024 PNG。`assets/make-icon.py` 为此前纯代码生成的自制图标脚本,保留供参考。
 
 新增地区:在 `internal/apple/regions.go` 的表里加一行即可,启动校验会验证可用性。
 新货币记得同时在 `internal/apple/model.go` 的符号表里补一项,否则会退化成 "XXX 999" 的展示。
