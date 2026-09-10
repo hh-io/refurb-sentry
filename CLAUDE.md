@@ -86,6 +86,12 @@ CI(`.github/workflows/ci.yml`)在每次 push / PR 上跑同样的三项检查。
 发版是推 `v*` 标签,`.github/workflows/release.yml` 用 GoReleaser
 (`.goreleaser.yaml`)构建 darwin/linux 的 amd64、arm64、armv7 归档并发布 release。
 版本号通过 `-ldflags -X main.version=` 注入,`go install` 装的会显示 `dev`。
+同一个 workflow 并行构建并推送 `ghcr.io/hh-io/refurb-sentry` 的 amd64/arm64 镜像
+(根目录 `Dockerfile`,同样注入版本号)。镜像**在构建机的原生架构上交叉编译**而不是靠
+QEMU 模拟目标架构——纯 Go 关掉 CGO 就能直接出目标架构的静态二进制,快一个数量级。
+容器以 **uid 1000** 运行,`deploy/docker-compose.yml` 因此默认用命名卷存状态:
+Docker 会按镜像里 `/app/data` 的属主初始化命名卷,用户不必 chown。
+换成 bind mount 就得自己 `chown 1000:1000` 宿主目录,否则状态写不进去、每轮基线回滚。
 
 `assets/icon.png`(推送通知图标)采用 macOSicons 上的 Apple Store 图标(https://macosicons.com/?icon=ijSPtRVRMC),
 规格为原始 1024x1024 PNG。`assets/make-icon.py` 为此前纯代码生成的自制图标脚本,保留供参考。

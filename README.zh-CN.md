@@ -91,6 +91,8 @@ git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
 go build -o refurb-sentry ./cmd/refurb-sentry
 ```
 
+不想在本机装东西的话,直接用容器镜像:见[部署 → Docker](#docker)。
+
 ### 运行
 
 ```bash
@@ -352,6 +354,33 @@ Apple 按 IP 判定地区——而不是隐藏身份。若抓到的商品自报�
 > 同时监控多个欧元区地区时,请自行确认出口 IP 与目标地区匹配。
 
 ## 部署
+
+### Docker
+
+镜像发布在 `ghcr.io/hh-io/refurb-sentry`,提供 `linux/amd64` 与 `linux/arm64` 两个架构,
+基于 alpine,约 17MB。
+
+```bash
+cp configs/config.example.yaml configs/config.yaml   # 改成你要监控的范围与规则
+echo 'BARK_KEY=你的设备码' > deploy/.env
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+先空跑一轮看看会推些什么:
+
+```bash
+docker compose -f deploy/docker-compose.yml run --rm refurb-sentry -once -dry-run
+```
+
+两点容易踩:
+
+- **compose 里的相对路径是相对 `deploy/` 目录的**,不是你执行命令的目录。
+  配置挂载的 `../configs/config.yaml` 指的就是仓库里那一份。
+- **容器以 uid 1000 运行**。默认用命名卷存状态,Docker 会按镜像里的属主初始化它,
+  不需要手动 chown;换成 bind mount 就得自己把宿主目录 `chown 1000:1000`,
+  否则 `state.json` 写不进去,每轮基线都会回滚。
+
+### launchd / systemd
 
 `deploy/` 下有现成的单元文件:
 

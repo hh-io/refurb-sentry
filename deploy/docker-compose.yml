@@ -1,0 +1,34 @@
+# 用法(在仓库根目录执行):
+#   cp configs/config.example.yaml configs/config.yaml  # 按需改监控范围与规则
+#   echo 'BARK_KEY=你的设备码' > deploy/.env
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# 跑一轮试试而不真推送:
+#   docker compose -f deploy/docker-compose.yml run --rm refurb-sentry -once -dry-run
+#
+# 注意 compose 里的相对路径是相对本文件所在目录(deploy/),不是执行命令的目录。
+
+services:
+  refurb-sentry:
+    image: ghcr.io/hh-io/refurb-sentry:latest
+    container_name: refurb-sentry
+    restart: unless-stopped
+
+    environment:
+      # 日志时间戳用的时区。镜像里装了 tzdata,填 IANA 名称即可。
+      TZ: ${TZ:-Asia/Shanghai}
+      # 配置里 ${VAR} 引用到的密钥都要在这里传进去,值写在同目录的 .env 里。
+      # 用不到 bark 就删掉这行,换成你实际启用的渠道所需的变量。
+      BARK_KEY: ${BARK_KEY:?配置里引用了 BARK_KEY,请在 deploy/.env 中设置}
+
+    volumes:
+      # 配置只读挂载,改完 docker compose restart 生效
+      - ../configs/config.yaml:/app/configs/config.yaml:ro
+      # 状态用命名卷:Docker 会按镜像里的属主初始化它,不需要手动 chown。
+      # 想直接查看 state.json 就换成 ../data:/app/data,并且先执行
+      #   mkdir -p ../data && sudo chown 1000:1000 ../data
+      # ——容器以 uid 1000 运行,写不进 root 拥有的目录。
+      - refurb-state:/app/data
+
+volumes:
+  refurb-state:

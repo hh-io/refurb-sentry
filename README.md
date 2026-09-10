@@ -112,6 +112,9 @@ git clone https://github.com/hh-io/refurb-sentry && cd refurb-sentry
 go build -o refurb-sentry ./cmd/refurb-sentry
 ```
 
+Prefer not to install anything locally? There's a container image — see
+[Deployment → Docker](#docker).
+
 ### Run
 
 ```bash
@@ -399,6 +402,36 @@ mixing another country's data into the state file.
 > Eurozone regions at once, verify the exit IP yourself.
 
 ## Deployment
+
+### Docker
+
+Images are published to `ghcr.io/hh-io/refurb-sentry` for `linux/amd64` and
+`linux/arm64`, alpine-based, around 17MB.
+
+```bash
+cp configs/config.example.yaml configs/config.yaml   # set your scope and rules
+echo 'BARK_KEY=your-device-key' > deploy/.env
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+Dry-run one round first to see what it would push:
+
+```bash
+docker compose -f deploy/docker-compose.yml run --rm refurb-sentry -once -dry-run
+```
+
+Two things to watch out for:
+
+- **Relative paths in the compose file resolve against `deploy/`**, not the
+  directory you run the command from. The mounted `../configs/config.yaml` is
+  the one in the repo.
+- **The container runs as uid 1000.** State lives in a named volume by default,
+  which Docker initialises with the ownership baked into the image, so no chown
+  is needed. Switch to a bind mount and you have to `chown 1000:1000` the host
+  directory yourself, or `state.json` can't be written and every round rolls its
+  baseline back.
+
+### launchd / systemd
 
 Ready-made unit files live in `deploy/`:
 

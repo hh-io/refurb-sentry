@@ -1,0 +1,16 @@
+.git
+.github
+.goreleaser.yaml
+dist/
+
+# 运行时状态与真实配置(可能含 device_key 等密钥)绝不能进镜像
+data/
+configs/config.yaml
+.env
+
+assets/
+deploy/
+*.md
+LICENSE
+Dockerfile
+.dockerignore
