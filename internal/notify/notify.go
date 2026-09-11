@@ -242,6 +242,10 @@ type SummaryScope struct {
 	Counter state.Counter
 	// RuleMatches 是当前在架商品里有多少件命中规则。
 	RuleMatches int
+	// StaleSince 非零表示这个范围已经连着几轮没抓到了,值为最后一次更新的时刻。
+	// 抓取失败的范围商品原样留在状态里,不标出来的话它在日报里
+	// 与「一切正常但没有变动」完全一样——那正是日报要消除的二义。
+	StaleSince time.Time
 }
 
 // DailySummary 渲染每日汇总。
@@ -256,6 +260,9 @@ func (r *Renderer) DailySummary(now, since time.Time, scopes []SummaryScope) Mes
 		fmt.Fprintf(&b, r.p.summaryScope,
 			sc.Region+"/"+sc.Category, sc.InStock,
 			sc.Counter.Listed, sc.Counter.Delisted, sc.RuleMatches)
+		if !sc.StaleSince.IsZero() {
+			fmt.Fprintf(&b, r.p.summaryStale, sc.StaleSince.Format("01-02 15:04"))
+		}
 		b.WriteString("\n")
 		total.Listed += sc.Counter.Listed
 		total.PriceDrop += sc.Counter.PriceDrop

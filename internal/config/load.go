@@ -181,7 +181,12 @@ func applyEnvOverrides(c *Config) error {
 		c.Notify.DigestThreshold = n
 	}
 	if v := os.Getenv("REFURB_DAILY_SUMMARY"); v != "" {
-		// 合法性统一交给 Validate,这里只负责覆盖,避免两处各写一份解析。
+		// 在这里就校验,是为了让错误信息指对地方:交给 Validate 的话,
+		// 报出来的是「配置文件校验失败: notify.daily_summary=...」,
+		// 而那个键根本不在文件里,运维会照着去翻一份没问题的配置。
+		if _, err := ParseDailySummary(v); err != nil {
+			return fmt.Errorf("环境变量 REFURB_DAILY_SUMMARY=%q 必须是 HH:MM 形式的时刻", v)
+		}
 		c.Notify.DailySummary = v
 	}
 	return nil

@@ -51,6 +51,17 @@ type Runner struct {
 	summaryAt *time.Duration
 	// summaryAttempts 是当前这份日报已经尝试送达的轮数。见 maxSummaryAttempts。
 	summaryAttempts int
+	// summaryFor 是 summaryAttempts 正在计的那次汇总的触发时刻,用于跨天归零。
+	summaryFor time.Time
+}
+
+// staleSince 把「是否陈旧」与「最后更新时刻」合成日报用的一个字段:
+// 零值即表示不陈旧,省掉一个只在另一个字段为真时才有意义的布尔。
+func staleSince(stale bool, lastSeen time.Time) time.Time {
+	if !stale {
+		return time.Time{}
+	}
+	return lastSeen
 }
 
 // maxSummaryAttempts 是同一份日报最多尝试送达多少轮。
@@ -208,9 +219,22 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 	return r.settle(ctx, results, time.Now())
 }
 
-// settle 是 RunOnce 的第二阶段:比对、推送、落盘。
+// settle 是 RunOnce 的第二阶段:比对、推送、落盘,最后视情况发出日报。
 // 与抓取分离既是为了「先抓全再统一比对」,也让这段无网络依赖的逻辑可以被测试覆盖。
+//
+// 日报刻意放在本轮推送成败之外:dispatch 失败最典型的场景是「某条事件的载荷被拒」
+// (正文超长、webhook 对该载荷恒返 400,正是 maxRollbacks 存在的理由),
+// 这时渠道本身是好的,短小的日报照样发得出去——而那恰恰是最需要它的时候。
+// 把它挂在成功路径上,会让系统出问题的那几轮正好没有活性信号。
 func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) error {
+	err := r.reconcile(ctx, results, now)
+	if sErr := r.maybeDailySummary(ctx, now); err == nil {
+		err = sErr
+	}
+	return err
+}
+
+func (r *Runner) reconcile(ctx context.Context, results []fetched, now time.Time) error {
 	// Apply 会原地推进内存基线,推送失败后仅仅跳过落盘并不能让下一轮重新产生这批事件。
 	// 因此先留一份快照,推送没能全部送达时整体回滚。
 	snapshot := r.st.Clone()
@@ -258,10 +282,23 @@ func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) e
 	}
 	r.rollbacks = 0
 	r.st.CountPushed(matched)
-	if err := r.save(); err != nil {
-		return err
+	return r.save()
+}
+
+// sameDay 判断两个时刻是否落在 loc 时区的同一天。
+func sameDay(a, b time.Time, loc *time.Location) bool {
+	x, y := a.In(loc), b.In(loc)
+	return x.Year() == y.Year() && x.YearDay() == y.YearDay()
+}
+
+// staleAfter 是「该范围的数据多久没更新就算陈旧」。取三轮,与 emptyStreakThreshold
+// 同样的理由:单轮抓取失败多半是抖动,连续三轮没拿到才值得在日报里说。
+func (r *Runner) staleAfter() time.Duration {
+	iv := r.cfg.Interval.Std()
+	if iv <= 0 {
+		iv = 120 * time.Second
 	}
-	return r.maybeDailySummary(ctx, now)
+	return 3 * iv
 }
 
 // maybeDailySummary 在到点且今天尚未汇总时发出日报。
@@ -270,7 +307,7 @@ func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) e
 // 变成单义:日报到了说明抓取与推送链路都通,没到就是系统坏了。
 // 其中的命中规则数还能暴露规则写错——维度键名抄错、型号猜错的表现正是它长期为 0。
 //
-// 送达失败**不回滚基线**:日报是派生信息,为它回滚会让本轮的真实事件
+// 送达失败不回滚基线:日报是派生信息,为它回滚会让本轮的真实事件
 // 下一轮重复推送一遍。失败只是不推进 LastSummaryAt,下一轮再试。
 func (r *Runner) maybeDailySummary(ctx context.Context, now time.Time) error {
 	// dry-run 连这份状态也不能碰:推进 LastSummaryAt 会让正式进程当天不再汇总,
@@ -278,16 +315,29 @@ func (r *Runner) maybeDailySummary(ctx context.Context, now time.Time) error {
 	if r.summaryAt == nil || r.dryRun {
 		return nil
 	}
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	loc := now.Location()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	due := midnight.Add(*r.summaryAt)
-	if now.Before(due) {
-		return nil
+
+	// 判重按自然日而不是与 due 比大小:首份日报可能发在 due 之前(见下),
+	// 那之后再拿 due 判断就会在同一天里发出第二份。
+	if !r.st.LastSummaryAt.IsZero() {
+		if sameDay(r.st.LastSummaryAt, now, loc) {
+			return nil
+		}
+		if now.Before(due) {
+			return nil
+		}
 	}
-	// LastSummaryAt 的零值早于任何 due,因此新部署起来后会立刻发一份。
-	// 这是刻意的:它同时是「装好了,确实在跑」的确认,
-	// 以及第一眼就能看到自己的规则当前命中几件。
-	if !r.st.LastSummaryAt.Before(due) {
-		return nil
+	// LastSummaryAt 为零表示从未汇总过,此时不等到点就发一份:
+	// 它是「装好了,确实在跑」的确认,也让人第一眼看到规则当前命中几件。
+	// 部署在当天 due 之前时,靠上面的自然日判重保证当天不会再发第二份。
+
+	// 重试计数是针对「某一次汇总」的。不按 due 归零的话,昨天失败一次的余额
+	// 会留给今天,今天就只剩两次机会——渠道抖一下就被判定为永久失败。
+	if !r.summaryFor.Equal(due) {
+		r.summaryFor = due
+		r.summaryAttempts = 0
 	}
 
 	scopes := make([]notify.SummaryScope, 0, len(r.scopes))
@@ -295,17 +345,26 @@ func (r *Runner) maybeDailySummary(ctx context.Context, now time.Time) error {
 		region, category := sc.region.Code, sc.category
 		entries := r.st.ScopeEntries(region, category)
 		matches := 0
+		var lastSeen time.Time
 		for _, e := range entries {
 			p := e.Product()
 			if ok, _ := r.rules.Match(p, filter.ParseSpec(p.Title)); ok {
 				matches++
 			}
+			if e.LastSeen.After(lastSeen) {
+				lastSeen = e.LastSeen
+			}
 		}
+		// 抓取失败的范围会被 RunOnce 跳过,它的商品因此原样留在状态里。
+		// 不标出来的话,一个连着几天抓不到的范围在日报里与「一切正常但没变动」
+		// 一模一样——那正是这个功能要消除的二义,不能在范围粒度上又放回来。
+		stale := !lastSeen.IsZero() && now.Sub(lastSeen) > r.staleAfter()
 		scopes = append(scopes, notify.SummaryScope{
 			Region: region, Category: category,
 			InStock:     len(entries),
 			Counter:     r.st.ScopeCounter(region, category),
 			RuleMatches: matches,
+			StaleSince:  staleSince(stale, lastSeen),
 		})
 	}
 

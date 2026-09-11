@@ -328,3 +328,30 @@ func TestInvalidDailySummaryIsFatal(t *testing.T) {
 		t.Errorf("解析结果不对: %v %v", d, err)
 	}
 }
+
+// daily_summary 写成纯空白时,Validate 认定「未配置」,而 NewRunner 判断的是
+// at != "",会拿着那个空格去解析并拒绝启动。同一个值,两处必须得出同一个结论。
+func TestBlankDailySummaryIsDisabled(t *testing.T) {
+	p := writeConfig(t, "regions: [CN]\ncategories: [mac]\nnotify:\n  daily_summary: \"   \"\n")
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("纯空白的 daily_summary 应视为未配置: %v", err)
+	}
+	if cfg.Notify.DailySummary != "" {
+		t.Errorf("归一化后应为空串,实际 %q——NewRunner 会据此尝试解析并启动失败", cfg.Notify.DailySummary)
+	}
+}
+
+// 环境变量写错时,错误信息必须指向环境变量。报成「配置文件校验失败:
+// notify.daily_summary=...」会让人去翻一份根本没有这个键的配置。
+func TestInvalidDailySummaryEnvNamesTheVariable(t *testing.T) {
+	t.Setenv("REFURB_DAILY_SUMMARY", "9am")
+	p := writeConfig(t, "regions: [CN]\ncategories: [mac]\n")
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("非法的 REFURB_DAILY_SUMMARY 应当报错")
+	}
+	if !strings.Contains(err.Error(), "REFURB_DAILY_SUMMARY") {
+		t.Errorf("错误信息没指向环境变量,会把人引向配置文件: %v", err)
+	}
+}

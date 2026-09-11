@@ -63,6 +63,8 @@ type phrases struct {
 	// 英文词序相同,因此两种语言都不需要显式参数索引。
 	summaryTotals string
 	summarySince  string
+	// summaryStale 接在范围那一行后面,提示该范围已经几轮没抓到了。
+	summaryStale string
 	// summarySinceStart 用于首份日报:此前没有任何汇总,说不出「自上次以来」。
 	summarySinceStart string
 	summaryEmpty      string
@@ -92,6 +94,7 @@ var langPhrases = map[Lang]phrases{
 		summaryScope:      "%s 在架 %d（+%d / -%d），命中规则 %d",
 		summaryTotals:     "自上次汇总以来：上架 %d，降价 %d，下架 %d；已推送 %d 条",
 		summarySince:      "上次汇总 %s",
+		summaryStale:      "（数据陈旧，最后更新 %s）",
 		summarySinceStart: "首次汇总，此前的变动未计入",
 		summaryEmpty:      "本期没有任何变动",
 		digestTitle:       "翻新监控 · %s",
@@ -115,6 +118,7 @@ var langPhrases = map[Lang]phrases{
 		summaryScope:      "%s: %d in stock (+%d / -%d), rule matches %d",
 		summaryTotals:     "Since last summary: %d listed, %d price drops, %d delisted; %d pushed",
 		summarySince:      "Last summary %s",
+		summaryStale:      " (stale, last updated %s)",
 		summarySinceStart: "First summary; earlier changes are not counted",
 		summaryEmpty:      "No changes in this period",
 		digestTitle:       "Refurb watch · %s",

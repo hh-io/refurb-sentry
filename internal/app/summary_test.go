@@ -52,11 +52,13 @@ func day(hours float64) time.Time {
 	return base.Add(time.Duration(hours * float64(time.Hour)))
 }
 
-// 日报必须到点才发、当天只发一次、次日重新发。
+// 已经汇总过之后,日报必须到点才发、当天只发一次、次日重新发。
 // 常驻进程每 interval 就会走一遍这段,判重错了就是每两分钟推一条。
 func TestDailySummarySendsOncePerDay(t *testing.T) {
+	st := state.New()
+	st.LastSummaryAt = day(-15) // 昨天 09:00 已经发过
 	n := &captureNotifier{}
-	r := newTestRunner(t, n, state.New())
+	r := newTestRunner(t, n, st)
 	withSummary(t, r, "09:00")
 	ctx := context.Background()
 
@@ -81,6 +83,104 @@ func TestDailySummarySendsOncePerDay(t *testing.T) {
 	}
 	if len(n.msgs) != 2 {
 		t.Fatalf("次日应再发一条,实际累计 %d 条", len(n.msgs))
+	}
+}
+
+// 从未汇总过时不等到点就发一份:两版 README 都把它作为「装好了确实在跑」的
+// 安装确认写给了用户,08:00 装好却要等到 09:00 会让人去排查一个没坏的部署。
+// 发完之后当天不能再发第二份——判重因此按自然日,不能拿 due 比大小。
+func TestFirstSummarySendsImmediatelyThenOncePerDay(t *testing.T) {
+	n := &captureNotifier{}
+	r := newTestRunner(t, n, state.New())
+	withSummary(t, r, "09:00")
+	ctx := context.Background()
+
+	if err := r.maybeDailySummary(ctx, day(8)); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.msgs) != 1 {
+		t.Fatalf("首次运行应立刻发一份,实际 %d 条", len(n.msgs))
+	}
+
+	// 当天真正到点时不能再发一份。
+	for _, h := range []float64{9, 9.05, 20} {
+		if err := r.maybeDailySummary(ctx, day(h)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(n.msgs) != 1 {
+		t.Fatalf("首份之后当天又发了,累计 %d 条", len(n.msgs))
+	}
+
+	if err := r.maybeDailySummary(ctx, day(33)); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.msgs) != 2 {
+		t.Fatalf("次日应正常发出,实际累计 %d 条", len(n.msgs))
+	}
+}
+
+// 重试计数是针对某一次汇总的。不跨天归零的话,昨天失败一次的余额会留给今天,
+// 今天就只剩两次机会,渠道抖一下就被判成永久失败、当天再也不汇总。
+func TestSummaryAttemptsResetAcrossDays(t *testing.T) {
+	st := state.New()
+	st.LastSummaryAt = day(-15)
+	n := &captureNotifier{fail: true}
+	r := newTestRunner(t, n, st)
+	withSummary(t, r, "09:00")
+	ctx := context.Background()
+
+	// 第一天在放弃之前只失败了一次(之后的轮次假设没走到这里)。
+	if err := r.maybeDailySummary(ctx, day(9)); err != nil {
+		t.Fatal(err)
+	}
+	if r.summaryAttempts != 1 {
+		t.Fatalf("第一天应记为尝试 1 次,实际 %d", r.summaryAttempts)
+	}
+
+	// 次日重新开始,该有完整的 maxSummaryAttempts 次机会。
+	if err := r.maybeDailySummary(ctx, day(33)); err != nil {
+		t.Fatal(err)
+	}
+	if r.summaryAttempts != 1 {
+		t.Errorf("次日的重试计数未归零,实际 %d(昨天的余额被带了过来)", r.summaryAttempts)
+	}
+}
+
+// 抓取失败的范围会被 RunOnce 跳过,商品原样留在状态里。不标出来的话,
+// 一个连着几天抓不到的范围在日报里与「一切正常但没变动」一模一样——
+// 那正是这个功能要消除的二义,不能在范围粒度上又放回来。
+func TestStaleScopeIsMarkedInSummary(t *testing.T) {
+	st := state.New()
+	st.Apply("CN", "mac", []apple.Product{prod("A", 100)}, day(9).Add(-time.Hour))
+
+	n := &captureNotifier{}
+	r := newTestRunner(t, n, st)
+	r.cfg.Interval = config.Duration(120 * time.Second)
+	withSummary(t, r, "09:00")
+
+	if err := r.maybeDailySummary(context.Background(), day(9)); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.msgs) != 1 {
+		t.Fatalf("应发出一条日报,实际 %d 条", len(n.msgs))
+	}
+	if !strings.Contains(n.msgs[0].Body, "数据陈旧") {
+		t.Errorf("一小时没更新的范围没有被标成陈旧:\n%s", n.msgs[0].Body)
+	}
+
+	// 刚抓过的范围不该被标。
+	st2 := state.New()
+	st2.Apply("CN", "mac", []apple.Product{prod("A", 100)}, day(9))
+	n2 := &captureNotifier{}
+	r2 := newTestRunner(t, n2, st2)
+	r2.cfg.Interval = config.Duration(120 * time.Second)
+	withSummary(t, r2, "09:00")
+	if err := r2.maybeDailySummary(context.Background(), day(9)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(n2.msgs[0].Body, "数据陈旧") {
+		t.Errorf("刚更新过的范围被误标成陈旧:\n%s", n2.msgs[0].Body)
 	}
 }
 
@@ -291,5 +391,43 @@ func TestFailedSummaryDoesNotRollBackBaseline(t *testing.T) {
 	}
 	if r.rollbacks != 0 {
 		t.Errorf("日报失败不该记进回滚计数,实际 %d", r.rollbacks)
+	}
+}
+
+// pickyNotifier 只拒绝事件消息,日报照收:模拟「某条事件的载荷被拒」
+// (正文超长、webhook 对该载荷恒返 400),此时渠道本身是好的。
+type pickyNotifier struct{ msgs []notify.Message }
+
+func (p *pickyNotifier) Name() string { return "picky" }
+
+func (p *pickyNotifier) Send(_ context.Context, m notify.Message) error {
+	if !strings.Contains(m.Title, "日报") {
+		return fmt.Errorf("载荷被拒")
+	}
+	p.msgs = append(p.msgs, m)
+	return nil
+}
+
+// 日报必须独立于本轮推送的成败。挂在成功路径上的话,恰恰是系统出问题的那几轮
+// (每轮都因同一条载荷回滚)完全没有日报,而那正是用户要靠它察觉故障的时候。
+func TestSummarySentEvenWhenDispatchFails(t *testing.T) {
+	st := state.New()
+	st.Apply("CN", "mac", []apple.Product{prod("A", 100)}, day(8))
+	st.LastSummaryAt = day(-15) // 昨天已汇总,今天到点该发
+
+	n := &pickyNotifier{}
+	r := newTestRunner(t, n, st)
+	withSummary(t, r, "09:00")
+
+	// 本轮有新商品,但它的推送被渠道拒掉,reconcile 会回滚基线。
+	if err := r.settle(context.Background(),
+		cnMac(t, []apple.Product{prod("A", 100), prod("B", 200)}), day(9)); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.msgs) != 1 {
+		t.Fatalf("推送失败的那一轮没有发出日报(收到 %d 条),故障期间正好没有活性信号", len(n.msgs))
+	}
+	if _, ok := st.Items["CN/mac/B"]; ok {
+		t.Error("事件推送失败却没有回滚基线")
 	}
 }

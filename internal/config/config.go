@@ -161,11 +161,14 @@ func (c *Config) Validate() (warnings []string, err error) {
 	if c.Notify.Group == "" {
 		c.Notify.Group = "refurb-sentry"
 	}
-	if s := strings.TrimSpace(c.Notify.DailySummary); s != "" {
-		if _, err := ParseDailySummary(s); err != nil {
+	// 无条件写回归一化后的值:只在非空分支里写回的话,daily_summary: " "
+	// 会以「校验通过且已关闭」的姿态离开 Validate,却在 NewRunner 里
+	// 因为 at != "" 而去解析空串,让进程拒绝启动。
+	c.Notify.DailySummary = strings.TrimSpace(c.Notify.DailySummary)
+	if c.Notify.DailySummary != "" {
+		if _, err := ParseDailySummary(c.Notify.DailySummary); err != nil {
 			return nil, err
 		}
-		c.Notify.DailySummary = s
 	}
 	// 归一化后存回,让后续取用不必再关心大小写与空白。
 	lang, e := notify.ParseLang(c.Notify.Lang)
