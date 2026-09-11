@@ -52,8 +52,10 @@ notify:
   digest_threshold: 5
   # 每日汇总的触发时刻,格式 "HH:MM"。默认 09:00,显式写成空串即关闭。
   #
-  # 注意这一项与 interval 那些不同:空值不会被回填成默认时刻,
-  # 否则就再也关不掉了。配置文件只读挂载时,用 REFURB_DAILY_SUMMARY= 关。
+  # 注意这一项与 interval 那些不同:空值不会被回填成默认时刻,否则就再也关不掉了。
+  # 关闭写成 daily_summary: "" 或只留键不写值都可以。
+  # 不想动配置文件时用环境变量 REFURB_DAILY_SUMMARY=(Docker 下要写进
+  # compose 的 environment 段,.env 里写不会进到容器里)。
   #
   # 时区取自进程的 TZ 环境变量,没设置时用服务器的系统时区,配置里没有这一项。
   # docker-compose 已默认 TZ: ${TZ:-Asia/Shanghai};裸机/systemd 部署要留意

@@ -129,11 +129,18 @@
   等待期越长,「安静」这个信号越没用;首次启动那一份还会立刻告诉用户
   规则当前命中几件,把「规则写错」从几个月后的困惑提前到第一分钟。
   **`Validate` 因此绝不能把空的 `daily_summary` 回填成默认时刻**——
-  默认值由 `Default()` 给,显式写空串是唯一的关闭手段,一回填就再也关不掉,
+  默认值由 `Default()` 给,配置里显式写空(空串或 null)是唯一的关闭手段,一回填就再也关不掉,
   而这是个会往手机上推东西的功能。`REFURB_DAILY_SUMMARY` 也因此用 `LookupEnv`
-  而不是 `Getenv` 判空:配置只读挂载时(compose 正是这么挂的)它是唯一的开关。
-  `TestDailySummaryDefaultsToEnabled`、`TestDailySummaryExplicitlyDisabled`
-  与 `TestDailySummaryEnvCanDisableAndOverride` 三条一起守着这对相反的语义。
+  而不是 `Getenv` 判空:空串是「关闭」这个有意义的取值,`Getenv` 区分不出它与「没设」。
+  **YAML 的 null 同样要当成关闭**:`daily_summary:` 只留键不写值时,yaml.v3 既不调用
+  自定义解码器也不触碰目标字段(实测),于是与「根本没写」不可区分,`Default()` 的时刻
+  会原样留下——用户删掉值以为关了,第二天照样收到推送。`Load` 为此在节点层用
+  `isExplicitNull` 认出 null。
+  `TestDailySummaryDefaultsToEnabled`、`TestDailySummaryExplicitlyDisabled`、
+  `TestDailySummaryEnvCanDisableAndOverride` 与 `TestDailySummaryEveryDisablingForm`
+  一起守着这对相反的语义(五种关闭写法 + 两种该保持默认的写法)。
+  另外 Docker 下 `.env` 只用于 compose 文件自身的 `${VAR}` 插值,**不注入容器**:
+  环境变量开关必须写进 compose 的 `environment:` 段,compose 里已留了注释掉的一行。
 - **日报送达失败绝不回滚基线**。它是派生信息,为它回滚会让本轮已送达的真实事件
   下一轮重复推送。失败只是不推进 `LastSummaryAt`,下一轮重试;
   但重试有上限(`maxSummaryAttempts`,理由同 `maxRollbacks`:渠道恒定失败时

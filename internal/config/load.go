@@ -134,6 +134,14 @@ func Load(path string) (*Config, []string, error) {
 		return nil, nil, fmt.Errorf("解析配置文件 %s: %w", path, err)
 	}
 
+	// YAML 里 `daily_summary:` 后面什么都不写是显式 null,而 yaml.v3 对 null
+	// 既不调用自定义解码器也不触碰目标字段,于是它与「根本没写这一项」不可区分,
+	// Default() 填的时刻会原样留下——用户删掉值以为关了,第二天照样收到推送。
+	// 这一项的空值是「关闭」这个有意义的取值,所以在节点层把 null 认出来。
+	if isExplicitNull(&root, "notify", "daily_summary") {
+		cfg.Notify.DailySummary = ""
+	}
+
 	if err := applyEnvOverrides(&cfg); err != nil {
 		return nil, nil, err
 	}
@@ -206,4 +214,34 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// isExplicitNull 报告 path 指向的键是否存在且其值是 YAML 的 null
+// (`key:` 后面留空、`~` 或 `null`)。键不存在时返回 false——
+// 「没写」与「写了留空」正是这里要区分的两件事。
+func isExplicitNull(root *yaml.Node, path ...string) bool {
+	n := root
+	if n.Kind == yaml.DocumentNode {
+		if len(n.Content) == 0 {
+			return false
+		}
+		n = n.Content[0]
+	}
+	for _, key := range path {
+		if n.Kind != yaml.MappingNode {
+			return false
+		}
+		var next *yaml.Node
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == key {
+				next = n.Content[i+1]
+				break
+			}
+		}
+		if next == nil {
+			return false
+		}
+		n = next
+	}
+	return n.Tag == "!!null"
 }

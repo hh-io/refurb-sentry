@@ -21,6 +21,10 @@ services:
       # 配置里 ${VAR} 引用到的密钥都要在这里传进去,值写在同目录的 .env 里。
       # 用不到 bark 就删掉这行,换成你实际启用的渠道所需的变量。
       BARK_KEY: ${BARK_KEY:?配置里引用了 BARK_KEY,请在 deploy/.env 中设置}
+      # 不想收每日汇总、又不想改配置文件时,取消下面这行的注释。
+      # 注意只有这里列出的变量才会进容器:.env 只用于本文件里的 ${VAR} 插值,
+      # 光在 .env 里写 REFURB_DAILY_SUMMARY= 是不会生效的。
+      # REFURB_DAILY_SUMMARY: ""
 
     # Docker 默认的 json-file 驱动**不限大小**,常驻进程的日志会一直涨到塞满磁盘。
     # 稳态每轮至少一行(默认 2 分钟一轮),一年约 50MB;网络抖动时每轮还会多几行 WARN,

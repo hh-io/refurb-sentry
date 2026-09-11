@@ -420,3 +420,47 @@ func TestDailySummaryEnvCanDisableAndOverride(t *testing.T) {
 		}
 	})
 }
+
+// 关闭日报的各种自然写法都必须真的关掉它。
+//
+// 尤其是 `daily_summary:`(只留键不写值):yaml.v3 对显式 null 既不调用自定义
+// 解码器也不触碰目标字段,于是它与「根本没写这一项」不可区分,Default() 填的
+// 时刻会原样留下。用户删掉值以为关了,第二天照样收到推送——而这个功能会往
+// 手机上推东西,静默地不关掉是最坏的失败方式。
+func TestDailySummaryEveryDisablingForm(t *testing.T) {
+	disabling := map[string]string{
+		`空串`:   "notify:\n  daily_summary: \"\"\n",
+		`只留键`:  "notify:\n  daily_summary:\n",
+		`null`: "notify:\n  daily_summary: null\n",
+		`波浪号`:  "notify:\n  daily_summary: ~\n",
+		`纯空白`:  "notify:\n  daily_summary: \"  \"\n",
+	}
+	for name, body := range disabling {
+		t.Run(name, func(t *testing.T) {
+			cfg, _, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\n"+body))
+			if err != nil {
+				t.Fatalf("这种写法应当被接受: %v", err)
+			}
+			if cfg.Notify.DailySummary != "" {
+				t.Errorf("没能关闭日报,仍是 %q", cfg.Notify.DailySummary)
+			}
+		})
+	}
+
+	// 反面:没写这一项、以及写了别的键,都不该被误判成关闭。
+	keeping := map[string]string{
+		`不写 notify 节点`: "",
+		`只写了 lang`:     "notify:\n  lang: en\n",
+	}
+	for name, body := range keeping {
+		t.Run(name, func(t *testing.T) {
+			cfg, _, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\n"+body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Notify.DailySummary != DefaultDailySummary {
+				t.Errorf("没写这一项就该保持默认 %q,实际 %q", DefaultDailySummary, cfg.Notify.DailySummary)
+			}
+		})
+	}
+}
