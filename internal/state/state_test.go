@@ -1,6 +1,8 @@
 package state
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -159,6 +161,38 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 	if s.IsBootstrapped("CN", "mac") {
 		t.Fatal("全新状态不应标记为已 bootstrap")
+	}
+}
+
+// 存量用户的状态文件里不会有新版本才加的字段,反序列化后那些 map 是 nil。
+// Load 必须把每个 map 字段都补上——漏一个既不编译报错,其余测试也照样全绿
+// (新装的用户走 New(),map 都是好的),只有存量用户升级后写入那个 map 的瞬间才 panic,
+// 而开发与 CI 都碰不到这条路径。
+//
+// 与 TestCloneCoversEveryField 同样用反射遍历:新加的 map 字段自动纳入,不必手动登记。
+func TestLoadInitializesEveryMap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	// 刻意只写 version,模拟一份缺了全部 map 字段的旧状态文件。
+	// 版本号取自常量,将来升版本时这里会跟着走而不是莫名其妙地失败。
+	raw := fmt.Sprintf(`{"version":%d}`, stateVersion)
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("写入测试状态文件失败: %v", err)
+	}
+
+	s, err := Load(path)
+	if err != nil {
+		t.Fatalf("加载失败: %v", err)
+	}
+
+	v := reflect.ValueOf(*s)
+	for i := range v.NumField() {
+		if v.Field(i).Kind() != reflect.Map {
+			continue
+		}
+		if v.Field(i).IsNil() {
+			t.Errorf("Load 未初始化 map 字段 %s,存量用户升级后写入它会 panic",
+				v.Type().Field(i).Name)
+		}
 	}
 }
 
