@@ -234,9 +234,9 @@
   `TestConsoleHandlerKeepsChineseReadable` 与 `TestTZLabelAlwaysCarriesOffset` 各守一条,
   后者的时区用例必须放在 `t.Run` 里:`t.Skip` 会终止整个测试函数,写在循环里会让
   没有系统时区库的环境把「本地时区必须带偏移」那条也一起跳过。
-- 稳态日志体积的估算(**每行约 40 字节、一年约 10MB**)同时出现在两版 README 与
-  `deploy/docker-compose.yml` 的注释里,是一处已知的重复:三个读者群都要就地看到这个数。
-  曾经 README 写 25MB 而 compose 写 50MB,谁都不知道该信哪个。改日志行格式时三处一起改。
+- 稳态日志体积的估算(**每行约 40 字节、一年约 10MB**)同时出现在两版 README、
+  `deploy/docker-compose.yml` 与 `deploy/com.refurb-sentry.plist` 的注释里,是一处已知的重复:各处读者都要就地看到这个数。
+  曾经 README 写 25MB 而 compose 写 50MB,谁都不知道该信哪个。改日志行格式时各处一起改。
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 

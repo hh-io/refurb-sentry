@@ -42,7 +42,7 @@
 
   <!--
     launchd 不会轮转这个文件,它会一直增长。稳态每轮至少一行(默认 2 分钟一轮),
-    一年约 25MB。交给 macOS 自带的 newsyslog 管理:
+    一年约 10MB。交给 macOS 自带的 newsyslog 管理:
       sudo tee /etc/newsyslog.d/refurb-sentry.conf <<'EOF'
       # logfilename                       [owner:group]  mode count size when  flags
       /usr/local/var/log/refurb-sentry.log                644  3     10240 *     J

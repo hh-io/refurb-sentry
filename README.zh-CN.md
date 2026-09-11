@@ -183,7 +183,7 @@ CN/watch 在架 28（+0 / -0），命中规则 0
 > **时区取自进程的 `TZ` 环境变量，没有设置时用服务器的系统时区**——配置文件里没有这一项。启动日志第一行会打出实际生效的时区与日报时刻，配错了一眼能看出来：
 >
 > ```text
-> 2026-09-11 20:31:29 INFO  开始监控 scopes=1 interval=2m0s channels=[bark] state=data/state.json tz=Asia/Shanghai(+08:00) daily_summary=09:00
+> 2026-09-11 20:31:29 INFO  开始监控 version=v0.4.0 scopes=1 interval=2m0s channels=[bark] state=data/state.json tz=Asia/Shanghai(+08:00) daily_summary=09:00
 > ```
 >
 > - **Docker**：`deploy/docker-compose.yml` 已默认 `TZ: ${TZ:-Asia/Shanghai}`，要改就在 `deploy/.env` 里写 `TZ=Europe/Berlin`（镜像内置 tzdata，填 IANA 名称即可）。
@@ -535,7 +535,7 @@ docker compose -f deploy/docker-compose.yml run --rm refurb-sentry -once -dry-ru
 
 ### 长期运行的磁盘占用
 
-程序本身不写任何日志文件，只往 stdout 输出，交给各自的守护方式收集。稳态下每个轮询周期
+程序本身不写任何日志文件，日志输出至 stderr（控制台通知与列表输出至 stdout），交给各自的守护方式收集。稳态下每个轮询周期
 至少一行日志（默认 2 分钟一轮，每行约 40 字节），一年约 10MB；网络抖动时每轮还会多几行 WARN，
 `log_level: debug` 更是成倍。**各种收集方式的轮转策略并不一致**，长期运行前值得确认：
 

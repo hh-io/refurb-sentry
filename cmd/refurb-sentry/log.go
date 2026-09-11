@@ -97,7 +97,7 @@ func appendAttr(b *strings.Builder, groups []string, a slog.Attr) {
 		}
 		// slog 规定空 key 的 Group 要内联,不加前缀——否则会打出 "g..k=1"。
 		if a.Key != "" {
-			groups = append(groups, a.Key)
+			groups = append(slices.Clip(groups), a.Key)
 		}
 		for _, s := range sub {
 			appendAttr(b, groups, s)

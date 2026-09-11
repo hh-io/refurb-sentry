@@ -183,7 +183,7 @@ Last summary 09-11 09:00
 > **The time zone comes from the process's `TZ` environment variable, falling back to the server's system time zone** — there is no config key for it. The first line of the startup log prints the zone actually in effect along with the summary time, so a misconfiguration is visible at a glance:
 >
 > ```text
-> 2026-09-11 20:31:29 INFO  开始监控 scopes=1 interval=2m0s channels=[bark] state=data/state.json tz=Asia/Shanghai(+08:00) daily_summary=09:00
+> 2026-09-11 20:31:29 INFO  开始监控 version=v0.4.0 scopes=1 interval=2m0s channels=[bark] state=data/state.json tz=Asia/Shanghai(+08:00) daily_summary=09:00
 > ```
 >
 > - **Docker**: `deploy/docker-compose.yml` already defaults to `TZ: ${TZ:-Asia/Shanghai}`; override it with `TZ=Europe/Berlin` in `deploy/.env` (the image ships tzdata, so IANA names work).
@@ -564,7 +564,7 @@ Services automatically restart with a 30s backoff on crash and flush state clean
 
 ### Disk usage over long runs
 
-The program writes no log files of its own — everything goes to stdout for the
+The program writes no log files of its own — logs go to stderr (console notifications and dimension lists go to stdout) for the
 supervisor to collect. In steady state that is at least one line per polling round
 (every 2 minutes by default, about 40 bytes each), roughly 10MB a year; network hiccups add WARN lines, and
 `log_level: debug` multiplies it. **Rotation differs by supervisor**, so it is worth
