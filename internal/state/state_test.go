@@ -317,6 +317,12 @@ func TestCloneCoversEveryField(t *testing.T) {
 	for i := range v.NumField() {
 		name := v.Type().Field(i).Name
 		if v.Field(i).Kind() != reflect.Map {
+			// 与下面的空 map 护栏对称:样本里是零值的话,原与副本都是零值,
+			// DeepEqual 恒真,漏拷一个标量字段照样全绿。新增字段必须在上面的
+			// 样本里显式赋一个非零值,这条断言才真的在守东西。
+			if v.Field(i).IsZero() {
+				t.Fatalf("测试样本里的 %s 是零值,守不住任何东西", name)
+			}
 			if !reflect.DeepEqual(v.Field(i).Interface(), cv.Field(i).Interface()) {
 				t.Errorf("Clone 漏拷字段 %s: 原 %v,副本 %v", name, v.Field(i), cv.Field(i))
 			}

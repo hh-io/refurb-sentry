@@ -258,7 +258,8 @@ func (s *State) counter(region, category string) Counter {
 }
 
 func (s *State) setCounter(region, category string, c Counter) {
-	// 从旧版状态文件加载时 counters 字段不存在,Load 不会替我们建好这个 map。
+	// 防御性兜底:New 与 Load 都保证这个 map 非 nil(后者对旧状态文件也补,
+	// 由 TestLoadInitializesEveryMap 钉着),这里挡的是包外直接构造 State{} 的调用方。
 	if s.Counters == nil {
 		s.Counters = make(map[string]Counter)
 	}
