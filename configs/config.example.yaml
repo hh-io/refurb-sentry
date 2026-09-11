@@ -1,168 +1,26 @@
-# refurb-sentry 配置示例
-# 复制为 config.yaml 后按需修改:cp configs/config.example.yaml configs/config.yaml
+# refurb-sentry 最小配置:监控 CN 站 Mac 分类,命中规则时用 Bark 推送。
+# 复制后按需修改:cp configs/config.example.yaml configs/config.yaml
 #
-# 所有 ${VAR} 会从环境变量展开;${VAR:-默认值} 可指定回退值。
-# 引用了未设置且没有默认值的变量时程序会直接报错退出,而不是静默推送失败。
+# 这里只写了必填项,其余全部走内置默认值(轮询 120s、状态存 data/state.json、
+# 中文推送文案等)。全部可配项、各家群机器人的 webhook 模板、以及每个取舍的来由,
+# 见 configs/config.full.yaml 与 README。
+#
+# ${VAR} 会从环境变量展开,未设置且没有 ${VAR:-默认值} 时程序直接报错退出。
 
-# 轮询间隔。翻新列表页的 CDN 缓存为 120 秒(响应头 s-maxage=120),
-# 设得比这更短只会增加请求量,并不会更早看到新品。
-interval: 120s
-
-state_path: data/state.json
-log_level: info
-
-# 监控范围。可选地区(19 个):
-#   AU BE CA CH CN DE ES FR HK IE IT JP KR NL NZ SG TW UK US
-# 注意各地区提供的分类不同(实测 CN/HK 没有 iphone 与 appletv,请求会返回 404),
-# 首轮启动会校验并明确报错。
 regions:
   - CN
 categories:
   - mac
 
-http:
-  # 代理的用途是修正出口地区(Apple 按 IP 判定地区),而非隐藏身份。
-  # 支持 http:// https:// socks5://,留空则沿用 HTTP_PROXY 等环境变量。
-  proxy: ""
-  # 留空使用内置的真实浏览器标识。不要做 UA 轮换——稳定的 UA 更不像自动化流量。
-  user_agent: ""
-  timeout: 20s
-  max_retries: 3
-  # 同一轮内相邻请求之间的随机停顿,避免十几个请求同时发出。
-  delay_min: 1s
-  delay_max: 3s
-  # 对列表页没给内存维度的商品补抓一次详情页,把内存读出来后写回 tsMemorySize。
-  # 实测上游对 16 英寸 MacBook Pro 的 M5 Pro / M5 Max 就不给这个维度
-  # (CN 站 106 件 MacBook Pro 里有 37 件),而规则把维度缺失判为不匹配,
-  # 不补的话「内存 32GB 以上」这类规则会静默漏掉整整一档机型。
-  # 默认关闭:它打破了「一分类一请求」的设计,只有按内存过滤时才值得付这个代价。
-  # 结果按货号缓存,首轮之后只有新上架的商品才会多一个请求。
-  # 超时/5xx 这类暂时故障不入缓存,下一轮会重试;补不到的商品会打 WARN 日志。
-  # 没有任何规则约束 tsMemorySize 时它整个跳过,启动时会给出警告。
-  fill_missing_memory: false
-
-notify:
-  group: refurb-sentry
-  # 推送文案的语言:zh-CN(默认)或 en。只影响通知内容,日志始终是中文。
-  # 商品标题的语言由抓取的地区决定,不受这里影响——
-  # lang: en 配 regions: [CN] 会得到英文外壳 + 中文标题的混合体。
-  lang: zh-CN
-  # 一轮内命中事件超过此数量时合并成一条摘要,避免 Apple 批量上架时刷屏。
-  digest_threshold: 5
-
 channels:
   - type: bark
-    name: bark
-    enabled: true
-    # 自建服务端可改为自己的地址
-    server: https://api.day.app
     device_key: ${BARK_KEY}
-    sound: ""
-    # 通知左侧的图标,留空则用 Bark 自带图标。
-    # 必须是公网可访问的位图,iOS 不认 SVG。
-    icon: https://raw.githubusercontent.com/hh-io/refurb-sentry/main/assets/icon.png
 
-  # 通用 webhook:改 url / headers / body 即可对接 Telegram、飞书、Server 酱等。
-  # 下面是 Telegram 的写法。body 是 text/template 模板,
-  # {{json .X}} 会把值转义成合法的 JSON 字面量。
-  #
-  # .Events 是本轮全部事件,摘要消息里也是完整的,可以 range 出自己的格式:
-  #   {{range .Events}}{{.KindLabel}} {{.ProductTitle}} {{.Price}}
-  #   {{end}}
-  # .Kind 是语言中立的 listed / price_drop / delisted,
-  # 想完全自定义文案语言的话据它分派即可,不受 notify.lang 约束。
-  - type: webhook
-    name: telegram
-    enabled: false
-    url: https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage
-    method: POST
-    headers:
-      Content-Type: application/json; charset=utf-8
-    body: |
-      {"chat_id":{{json "${TELEGRAM_CHAT_ID}"}},"text":{{json .Text}},"disable_web_page_preview":false}
-
-  # 下面几个国内常用的群机器人/推送服务同样只是换 url + body 模板,不需要额外代码。
-  # 都默认 enabled: false,不会逼你为用不到的渠道去设环境变量。
-  #
-  # !! 这四家业务失败时也返回 HTTP 200,错误放在响应体里
-  #    (钉钉 {"errcode":310000,"errmsg":"keywords not in content"}、飞书 {"code":19024})。
-  #    本工具只看 HTTP 状态码,这类失败会被当成推送成功,基线照常推进,
-  #    这批事件就永久丢失了,日志里只会看到「推送成功」。
-  #    所以配好后一定要真发一条确认手机上收得到,别只看日志——
-  #    尤其是安全设置选了自定义关键词的时候。
-
-  # 飞书自定义机器人。安全设置请选「自定义关键词」或「IP 白名单」:
-  # 「签名校验」要用密钥算 HmacSHA256 再随请求体上传 timestamp/sign,本工具不支持。
-  # 选了关键词就让关键词出现在正文里,例如把下面的 {{json .Text}} 换成
-  #   {{json (printf "refurb-sentry\n%s" .Text)}}
-  # ——推送标题是「上架 · CN mac」这种动态文本,没有恒定出现的词可依赖。
-  - type: webhook
-    name: feishu
-    enabled: false
-    url: ${FEISHU_WEBHOOK_URL}
-    body: |
-      {"msg_type":"text","content":{"text":{{json .Text}}}}
-
-  # 企业微信群机器人。markdown 里 \n 即换行,content 上限 4096 字节。
-  - type: webhook
-    name: wecom
-    enabled: false
-    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}
-    body: |
-      {"msgtype":"markdown","markdown":{"content":{{json .Text}}}}
-
-  # 钉钉自定义机器人。同样只能用「自定义关键词」或「IP 地址(段)」两种安全设置,
-  # 「加签」需要在 URL 上带 timestamp 与 HmacSHA256 算出的 sign,本工具不支持。
-  # 用 text 而非 markdown 类型:钉钉按标准 markdown 渲染,单个换行不成行,
-  # 想用 markdown 得自己在每行末尾补两个空格。
-  - type: webhook
-    name: dingtalk
-    enabled: false
-    url: https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_ACCESS_TOKEN}
-    body: |
-      {"msgtype":"text","text":{"content":{{json .Text}}}}
-
-  # Server 酱 Turbo。它收 form 表单而不是 JSON,所以要显式改 Content-Type,
-  # 并改用 text/template 内置的 urlquery 转义(json 那套在这里不适用)。
-  # SendKey 以 sctp 开头的新版改用 https://<uid>.push.ft07.com/send/<SendKey>.send,
-  # uid 是 SendKey 里 sctp 与 t 之间的数字。
-  - type: webhook
-    name: serverchan
-    enabled: false
-    url: https://sctapi.ftqq.com/${SERVERCHAN_SENDKEY}.send
-    method: POST
-    headers:
-      Content-Type: application/x-www-form-urlencoded
-    # 用 |- 而不是 |:块标量默认保留的尾换行落在模板动作之外,是裸字节,
-    # 会原样进到 desp 的字段值里。JSON 载荷多个尾换行无害,表单则不然。
-    body: |-
-      title={{urlquery .Title}}&desp={{urlquery .Text}}
-
-# 过滤规则。留空表示推送所选范围内的全部变动。
-#
-# 匹配语义:规则之间是 OR(命中任意一条即推送);
-# 单条规则内各字段之间是 AND;字段内的多个候选值之间是 OR;留空的字段不作限制。
-#
-# dimensions 的可用键与取值随分类而变,用 -list-dims 查询当前实际值:
-#   go run ./cmd/refurb-sentry -config configs/config.yaml -list-dims
-# 初次写规则时再加 -skeleton,会在表格之后打印一段可直接粘贴到本节点下的规则骨架,
-# 里面已填好当前在售的全部取值——复制过来删到只剩想要的即可,不必手抄键名。
+# 规则之间是 OR,单条规则内各字段之间是 AND,字段内多个候选值之间是 OR。
+# 全部删掉则推送所选范围内的一切变动。
+# 当前有哪些可用的维度键与取值,用 -list-dims -skeleton 查,不必手抄。
 rules:
-  - name: MacBook Pro 高配
-    regions: [CN]
-    categories: [mac]
-    dimensions:
-      refurbClearModel: [macbookpro]
-      tsMemorySize: [24gb, 32gb, 36gb, 48gb, 64gb, 128gb]
-      dimensionCapacity: [1tb, 2tb, 4tb, 8tb]
-    # 芯片与核心数只能从标题解析,是全项目最易受上游文案调整影响的条件。
-    chips: [M4 Pro, M4 Max, M5 Pro, M5 Max]
-    min_cpu_cores: 12
-    max_price: 20000
-
   - name: Mac mini 捡漏
-    regions: [CN]
-    categories: [mac]
     dimensions:
       refurbClearModel: [macmini]
     max_price: 6000

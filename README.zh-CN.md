@@ -115,6 +115,9 @@ export BARK_KEY=your_bark_device_key
 ./refurb-sentry -config configs/config.yaml
 ```
 
+> [!TIP]
+> `configs/config.example.yaml` 是一份十来行的**最小配置**：只写必填项，其余全部走内置默认值（轮询 120 秒、状态存 `data/state.json`、中文推送文案等）。需要代理、多地区、其它推送渠道或更细的 HTTP 调优时，再去 `configs/config.full.yaml` 抄对应片段——那份列出了每一个可配项及其取舍来由。
+
 > [!IMPORTANT]
 > **首次运行只会静默建立商品基线，绝不推送任何通知**。这样可防止在架的数百款历史商品一次性轰炸手机。从第二轮轮询起，发生的新增、降价或下架才会推送。
 
@@ -364,7 +367,7 @@ channels:
 
 ### 3. 飞书 / 企业微信 / 钉钉 / Server 酱配置指南
 
-`configs/config.example.yaml` 内置了国内主流机器人的开箱即用模板。配置时请注意以下关键点：
+`configs/config.full.yaml` 内置了国内主流机器人的开箱即用模板。配置时请注意以下关键点：
 
 | 渠道 | 请求格式 | 关键配置与避坑要点 |
 |---|---|---|

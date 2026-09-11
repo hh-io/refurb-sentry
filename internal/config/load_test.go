@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -283,4 +284,26 @@ func hasWarning(warnings []string, substr string) bool {
 		}
 	}
 	return false
+}
+
+// 最小配置是 README 快速开始里让用户直接 cp 的那一份,它靠默认值补全绝大多数字段。
+// 哪天某个字段不再有默认值、或是这里写错了一个键名,失败方式是新用户第一次运行
+// 就撞上报错,而仓库里没有任何东西会先一步发现。顺带确认它不带 warning:
+// 起手第一次运行就看到 WARN 会让人以为自己配错了。
+func TestExampleConfigIsMinimalAndRunnable(t *testing.T) {
+	t.Setenv("BARK_KEY", "example-device-key")
+
+	cfg, warnings, err := Load("../../configs/config.example.yaml")
+	if err != nil {
+		t.Fatalf("加载最小配置: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("最小配置不应产生 warning: %v", warnings)
+	}
+	if cfg.Interval.Std() != 120*time.Second || cfg.StatePath != "data/state.json" {
+		t.Errorf("默认值未回填: interval=%v state_path=%q", cfg.Interval.Std(), cfg.StatePath)
+	}
+	if len(cfg.Channels) != 1 || cfg.Channels[0].Type != "bark" {
+		t.Errorf("最小配置应当只有一个 bark 渠道,实际 %+v", cfg.Channels)
+	}
 }

@@ -17,23 +17,23 @@ import (
 	"github.com/hh-io/refurb-sentry/internal/state"
 )
 
-// exampleWebhookChannels 是示例配置里必须存在的 webhook 模板。
+// fullWebhookChannels 是全量配置参考里必须存在的 webhook 模板。
 // 少一个就说明模板被误删,用户复制粘贴的起点没了。
-var exampleWebhookChannels = []string{"telegram", "feishu", "wecom", "dingtalk", "serverchan"}
+var fullWebhookChannels = []string{"telegram", "feishu", "wecom", "dingtalk", "serverchan"}
 
 const wantTitle = "翻新 14 英寸 MacBook Pro"
 
-// 示例配置里的 body 模板是用户复制粘贴的起点,写错了既不编译报错也不会被
+// 全量配置参考里的 body 模板是用户复制粘贴的起点,写错了既不编译报错也不会被
 // 其它测试碰到,只会在真收到事件那天静默返回 400。这里把每个模板真发一遍
 // 到本地服务器,按 Content-Type 校验载荷确实是合法的 JSON / form 表单,
 // 并确认商品标题真的落进了载荷里,而不是渲染出一个空壳。
-func TestExampleConfigWebhookTemplatesRender(t *testing.T) {
+func TestFullConfigWebhookTemplatesRender(t *testing.T) {
 	// bark 渠道是启用状态,引用的环境变量必须有值才能加载。
 	t.Setenv("BARK_KEY", "example-device-key")
 
-	cfg, _, err := config.Load("../../configs/config.example.yaml")
+	cfg, _, err := config.Load("../../configs/config.full.yaml")
 	if err != nil {
-		t.Fatalf("加载示例配置: %v", err)
+		t.Fatalf("加载全量配置: %v", err)
 	}
 
 	var gotType string
@@ -105,9 +105,9 @@ func TestExampleConfigWebhookTemplatesRender(t *testing.T) {
 		}
 	}
 
-	for _, name := range exampleWebhookChannels {
+	for _, name := range fullWebhookChannels {
 		if !seen[name] {
-			t.Errorf("示例配置缺少 %s 的 webhook 模板", name)
+			t.Errorf("全量配置参考缺少 %s 的 webhook 模板", name)
 		}
 	}
 }

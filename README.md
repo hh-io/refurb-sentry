@@ -115,6 +115,9 @@ export BARK_KEY=your_bark_device_key
 ./refurb-sentry -config configs/config.yaml
 ```
 
+> [!TIP]
+> `configs/config.example.yaml` is a **minimal config** of about a dozen lines: required keys only, everything else falls back to built-in defaults (120s polling, state in `data/state.json`, Chinese notification wording, and so on). When you need a proxy, multiple regions, other notification channels, or finer HTTP tuning, copy the relevant snippet from `configs/config.full.yaml` — that file lists every option along with the reasoning behind it.
+
 > [!IMPORTANT]
 > **The first run only records a baseline and sends zero notifications.** This prevents hundreds of pre-existing listings from flooding your device. Notifications will begin from the second round onward when actual changes occur.
 
@@ -388,7 +391,7 @@ channels:
 
 ### 3. Feishu / WeCom / DingTalk / ServerChan Guide
 
-Ready-to-use template snippets are included in `configs/config.example.yaml`. Keep these platform nuances in mind:
+Ready-to-use template snippets are included in `configs/config.full.yaml`. Keep these platform nuances in mind:
 
 | Channel | Format | Key Requirements & Pitfalls |
 |---|---|---|

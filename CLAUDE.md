@@ -144,9 +144,16 @@
 - 通用 webhook 只做模板渲染,**不算签名**。飞书/钉钉的「加签」安全模式因此用不了,
   两版 README 与示例配置都写明改用自定义关键词或 IP 白名单——
   为一个渠道引入 HMAC 分支不如把边界说清楚。
-  示例配置里的 body 模板写错既不编译报错也碰不到其它测试,只会在真收到事件那天静默 400,
-  `TestExampleConfigWebhookTemplatesRender` 为此把每份模板真发一遍到本地服务器,
+  模板写错既不编译报错也碰不到其它测试,只会在真收到事件那天静默 400,
+  `TestFullConfigWebhookTemplatesRender` 为此把每份模板真发一遍到本地服务器,
   按 Content-Type 校验载荷是合法 JSON / 表单,且商品标题确实落进了载荷。
+- 配置示例分两份:`configs/config.example.yaml` 是十来行的**最小配置**,
+  README 快速开始、cask caveats、compose 注释里让用户 cp 的都是它;
+  `configs/config.full.yaml` 是全量参考,列出每个可配项与五家群机器人的 webhook 模板。
+  最小配置里**不许重复任何事实**(地区清单、`s-maxage=120` 的理由、各家返回 200 的坑),
+  那些只留在全量版与 README 里——同一个事实写在两处,过期的那份不会有任何东西报错。
+  它靠默认值补全其余字段,`TestExampleConfigIsMinimalAndRunnable` 守着它能加载、
+  且**不产生任何 warning**:起手第一次运行就看到 WARN 会让人以为自己配错了。
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 

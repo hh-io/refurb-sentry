@@ -40,6 +40,7 @@ archives:
       - README.zh-CN.md
       - LICENSE
       - configs/config.example.yaml
+      - configs/config.full.yaml
       - deploy/*
 
 checksum:
@@ -103,7 +104,7 @@ homebrew_casks:
       refurb-sentry needs a config file. Start from the example:
 
         curl -fsSLO https://raw.githubusercontent.com/hh-io/refurb-sentry/main/configs/config.example.yaml
-        refurb-sentry -config config.example.yaml -once -dry-run
+        BARK_KEY=your-bark-key refurb-sentry -config config.example.yaml -once -dry-run
 
       To keep it running in the background, install the launchd agent from
       the repo (this cask does not register one):
