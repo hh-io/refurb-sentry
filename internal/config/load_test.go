@@ -307,3 +307,24 @@ func TestExampleConfigIsMinimalAndRunnable(t *testing.T) {
 		t.Errorf("最小配置应当只有一个 bark 渠道,实际 %+v", cfg.Channels)
 	}
 }
+
+// daily_summary 拼错必须直接报错退出。静默回退等于「配了个日报却永远收不到」,
+// 而日报没到正是用户判断系统坏了的信号——那会让人去查一个根本不存在的故障。
+func TestInvalidDailySummaryIsFatal(t *testing.T) {
+	for _, bad := range []string{"9:00am", "25:00", "09:60", "早上九点"} {
+		p := writeConfig(t, "regions: [CN]\ncategories: [mac]\nnotify:\n  daily_summary: \""+bad+"\"\n")
+		if _, _, err := Load(p); err == nil {
+			t.Errorf("daily_summary=%q 应当报错", bad)
+		}
+	}
+
+	p := writeConfig(t, "regions: [CN]\ncategories: [mac]\nnotify:\n  daily_summary: \"09:05\"\n")
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("合法的 daily_summary 被拒: %v", err)
+	}
+	d, err := ParseDailySummary(cfg.Notify.DailySummary)
+	if err != nil || d != 9*time.Hour+5*time.Minute {
+		t.Errorf("解析结果不对: %v %v", d, err)
+	}
+}

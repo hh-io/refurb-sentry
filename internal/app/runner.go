@@ -45,7 +45,18 @@ type Runner struct {
 
 	// rollbacks 是连续回滚的轮数,用于在推送永久性失败时放弃重试。见 maxRollbacks。
 	rollbacks int
+
+	// summaryAt 是日报触发时刻相对当天零点的偏移,nil 表示未启用。
+	// 用指针而不是 -1 之类的哨兵:零值必须等于关闭,而 0 本身是合法的 00:00。
+	summaryAt *time.Duration
+	// summaryAttempts 是当前这份日报已经尝试送达的轮数。见 maxSummaryAttempts。
+	summaryAttempts int
 }
+
+// maxSummaryAttempts 是同一份日报最多尝试送达多少轮。
+// 理由与 maxRollbacks 相同:渠道恒定失败时,120s 一轮会让它一天重试几百次。
+// 放弃时只推进 LastSummaryAt 而不清零计数器,那批变动会并进下一份日报,数字不丢。
+const maxSummaryAttempts = 3
 
 // maxRollbacks 是同一批变动最多连续回滚多少轮。
 //
@@ -87,12 +98,21 @@ func NewRunner(opt Options) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runner{
+	r := &Runner{
 		cfg: cfg, client: opt.Client, rules: opt.Rules, notif: opt.Notifier,
 		render: notify.NewRenderer(lang, cfg.Notify.Group),
 		st:     opt.State, scopes: scopes, log: opt.Logger, dryRun: opt.DryRun,
 		memCache: apple.NewMemoryCache(),
-	}, nil
+	}
+	if at := cfg.Notify.DailySummary; at != "" {
+		// 同样已在 Validate 阶段校验过格式。
+		d, err := config.ParseDailySummary(at)
+		if err != nil {
+			return nil, err
+		}
+		r.summaryAt = &d
+	}
+	return r, nil
 }
 
 // Run 阻塞执行监控循环,直到 ctx 被取消。
@@ -214,7 +234,12 @@ func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) e
 			"scopes", baselined, "products", baselinedItems)
 	}
 
-	if !r.dispatch(ctx, events) {
+	// 计数放在 Apply 之后、推送之前:它与基线同属一份状态,
+	// 推送全败回滚时一并退回,下一轮重新产生的同一批事件才不会被计两次。
+	r.st.CountEvents(events)
+
+	matched, delivered := r.dispatch(ctx, events)
+	if !delivered {
 		r.rollbacks++
 		if r.rollbacks > maxRollbacks {
 			// 连续回滚这么多轮,失败几乎不可能是暂时的。强制推进,
@@ -232,20 +257,97 @@ func (r *Runner) settle(ctx context.Context, results []fetched, now time.Time) e
 		return nil
 	}
 	r.rollbacks = 0
+	r.st.CountPushed(matched)
+	if err := r.save(); err != nil {
+		return err
+	}
+	return r.maybeDailySummary(ctx, now)
+}
+
+// maybeDailySummary 在到点且今天尚未汇总时发出日报。
+//
+// 它不做任何抓取,只把已有状态读一遍。用途是把「手机很安静」这个二义信号
+// 变成单义:日报到了说明抓取与推送链路都通,没到就是系统坏了。
+// 其中的命中规则数还能暴露规则写错——维度键名抄错、型号猜错的表现正是它长期为 0。
+//
+// 送达失败**不回滚基线**:日报是派生信息,为它回滚会让本轮的真实事件
+// 下一轮重复推送一遍。失败只是不推进 LastSummaryAt,下一轮再试。
+func (r *Runner) maybeDailySummary(ctx context.Context, now time.Time) error {
+	// dry-run 连这份状态也不能碰:推进 LastSummaryAt 会让正式进程当天不再汇总,
+	// 清零计数则会把那批变动从下一份日报里抹掉——都属于约束「dry-run 无副作用」。
+	if r.summaryAt == nil || r.dryRun {
+		return nil
+	}
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	due := midnight.Add(*r.summaryAt)
+	if now.Before(due) {
+		return nil
+	}
+	// LastSummaryAt 的零值早于任何 due,因此新部署起来后会立刻发一份。
+	// 这是刻意的:它同时是「装好了,确实在跑」的确认,
+	// 以及第一眼就能看到自己的规则当前命中几件。
+	if !r.st.LastSummaryAt.Before(due) {
+		return nil
+	}
+
+	scopes := make([]notify.SummaryScope, 0, len(r.scopes))
+	for _, sc := range r.scopes {
+		region, category := sc.region.Code, sc.category
+		entries := r.st.ScopeEntries(region, category)
+		matches := 0
+		for _, e := range entries {
+			p := e.Product()
+			if ok, _ := r.rules.Match(p, filter.ParseSpec(p.Title)); ok {
+				matches++
+			}
+		}
+		scopes = append(scopes, notify.SummaryScope{
+			Region: region, Category: category,
+			InStock:     len(entries),
+			Counter:     r.st.ScopeCounter(region, category),
+			RuleMatches: matches,
+		})
+	}
+
+	sent, err := r.notif.Send(ctx, r.render.DailySummary(now, r.st.CountersSince, scopes))
+	if err != nil {
+		r.log.Warn("日报推送存在失败渠道", "err", err)
+	}
+	if sent == 0 {
+		r.summaryAttempts++
+		if r.summaryAttempts < maxSummaryAttempts {
+			r.log.Warn("日报未送达任何渠道,下一轮重试",
+				"attempts", r.summaryAttempts, "max", maxSummaryAttempts)
+			return nil
+		}
+		// 放弃本次汇总。计数器刻意不清零:这批变动会并进下一份日报,
+		// 「自上次汇总以来」的口径靠 CountersSince 保持准确。
+		r.log.Error("日报连续未送达,放弃本次汇总,计数并入下一份",
+			"attempts", r.summaryAttempts)
+		r.summaryAttempts = 0
+		r.st.LastSummaryAt = now
+		return r.save()
+	}
+
+	r.summaryAttempts = 0
+	r.st.LastSummaryAt = now
+	r.st.ResetCounters(now)
+	r.log.Info("已发送日报", "scopes", len(scopes))
 	return r.save()
 }
 
 // dispatch 过滤事件并推送。规则匹配放在 diff 之后:
 // 状态库始终记录全部商品,这样日后放宽规则时,早已在架的商品不会被误报成新上架。
 //
-// 返回 false 表示有消息一个渠道都没送出去,调用方据此回滚基线。
+// 返回实际推送出去的事件,以及是否全部送达;后者为 false 表示有消息
+// 一个渠道都没送出去,调用方据此回滚基线。
 // 逐条推送时只要有一条全败就算整轮失败:回滚是整轮粒度的,
 // 下一轮同批事件会重新产生,已送达的那几条因此可能重复推送一次——
 // 重复优于永久丢失。
-func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
+func (r *Runner) dispatch(ctx context.Context, events []state.Event) ([]state.Event, bool) {
 	if len(events) == 0 {
 		r.log.Info("本轮无变化")
-		return true
+		return nil, true
 	}
 
 	matched := make([]state.Event, 0, len(events))
@@ -261,7 +363,7 @@ func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 
 	r.log.Info("检测到变化", "events", len(events), "matched", len(matched))
 	if len(matched) == 0 {
-		return true
+		return nil, true
 	}
 
 	// 上架优先展示,其次降价,最后下架。
@@ -274,7 +376,7 @@ func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 		if err != nil {
 			r.log.Error("摘要推送存在失败渠道", "err", err)
 		}
-		return sent > 0
+		return matched, sent > 0
 	}
 
 	undelivered := 0
@@ -289,9 +391,9 @@ func (r *Runner) dispatch(ctx context.Context, events []state.Event) bool {
 	}
 	if undelivered > 0 {
 		r.log.Error("部分事件未送达任何渠道", "undelivered", undelivered, "total", len(matched))
-		return false
+		return matched, false
 	}
-	return true
+	return matched, true
 }
 
 func kindRank(k state.EventKind) int {

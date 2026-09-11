@@ -68,6 +68,23 @@ type NotifyConfig struct {
 	// DigestThreshold:一轮内匹配事件超过此数量就合并为一条摘要,
 	// 避免 Apple 批量上架时几十条推送刷屏。
 	DigestThreshold int `yaml:"digest_threshold"`
+	// DailySummary 是每日汇总的触发时刻,格式 "HH:MM",按运行机器的本地时区。
+	// 留空(默认)关闭。
+	//
+	// 汇总本身不产生新的抓取,只是把已有状态读一遍。它的用途是把「手机很安静」
+	// 这个二义信号变成单义:条到了说明抓取与推送链路都通,条没到就是系统出了问题。
+	// 其中「命中规则数」还能暴露规则写错——维度键名抄错、型号猜错的表现
+	// 正是它长期为 0,而那类错误在别处不会有任何报错。
+	DailySummary string `yaml:"daily_summary"`
+}
+
+// ParseDailySummary 把 "HH:MM" 解析成当天零点起的偏移。
+func ParseDailySummary(s string) (time.Duration, error) {
+	t, err := time.Parse("15:04", strings.TrimSpace(s))
+	if err != nil {
+		return 0, fmt.Errorf("notify.daily_summary=%q 不是合法的 HH:MM 时刻", s)
+	}
+	return time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute, nil
 }
 
 type ChannelConfig struct {
@@ -143,6 +160,12 @@ func (c *Config) Validate() (warnings []string, err error) {
 	}
 	if c.Notify.Group == "" {
 		c.Notify.Group = "refurb-sentry"
+	}
+	if s := strings.TrimSpace(c.Notify.DailySummary); s != "" {
+		if _, err := ParseDailySummary(s); err != nil {
+			return nil, err
+		}
+		c.Notify.DailySummary = s
 	}
 	// 归一化后存回,让后续取用不必再关心大小写与空白。
 	lang, e := notify.ParseLang(c.Notify.Lang)

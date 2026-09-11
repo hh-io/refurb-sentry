@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hh-io/refurb-sentry/internal/apple"
 	"github.com/hh-io/refurb-sentry/internal/state"
@@ -478,6 +479,48 @@ func TestChinesePhrasesUseFullWidthPunctuation(t *testing.T) {
 		for _, c := range halfWidth {
 			if strings.Contains(got, c) {
 				t.Errorf("中文文案 %s 里有半角 %q:%q", name, c, got)
+			}
+		}
+	}
+}
+
+// 格式串的参数个数写错既不编译报错也不会被别的测试碰到,只会在真发日报那天
+// 渲染出 "%!d(MISSING)" 推到用户手机上。这里把每种语言、每条分支都渲染一遍,
+// 断言结果里不含 fmt 的报错标记。
+func TestDailySummaryRendersInEveryLanguage(t *testing.T) {
+	now := time.Date(2026, 9, 12, 9, 0, 0, 0, time.UTC)
+	since := now.Add(-24 * time.Hour)
+	scopes := []SummaryScope{{
+		Region: "CN", Category: "mac", InStock: 206,
+		Counter:     state.Counter{Listed: 8, PriceDrop: 2, Delisted: 4, Pushed: 1},
+		RuleMatches: 1,
+	}}
+
+	for lang := range langPhrases {
+		r := NewRenderer(lang, "g")
+		cases := map[string]Message{
+			"常规":     r.DailySummary(now, since, scopes),
+			"首份日报":   r.DailySummary(now, time.Time{}, scopes),
+			"本期无变动":  r.DailySummary(now, since, []SummaryScope{{Region: "CN", Category: "watch"}}),
+			"尚无任何范围": r.DailySummary(now, since, nil),
+		}
+		for name, m := range cases {
+			got := m.Title + "\n" + m.Body
+			if strings.Contains(got, "%!") {
+				t.Errorf("语言 %s 的日报(%s)格式串参数对不上:\n%s", lang, name, got)
+			}
+			if m.Title == "" || m.Body == "" {
+				t.Errorf("语言 %s 的日报(%s)渲染出空内容", lang, name)
+			}
+		}
+		// 日报刻意不带链接:在多件商品里挑一条只会把人点到错的机器上。
+		if u := r.DailySummary(now, since, scopes).URL; u != "" {
+			t.Errorf("语言 %s 的日报不该带链接,实际 %q", lang, u)
+		}
+		body := r.DailySummary(now, since, scopes).Body
+		for _, want := range []string{"206", "1"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("语言 %s 的日报正文缺少 %q:\n%s", lang, want, body)
 			}
 		}
 	}

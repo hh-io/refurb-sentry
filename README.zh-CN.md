@@ -157,6 +157,25 @@ https://www.apple.com.cn/shop/product/...
 ……
 ```
 
+
+### 每日汇总（默认关闭，配置 `notify.daily_summary: "09:00"` 后启用）
+
+```text
+翻新监控日报 · 2026-09-12
+CN/mac 在架 206（+8 / -4），命中规则 1
+CN/watch 在架 28（+0 / -0），命中规则 0
+
+自上次汇总以来：上架 8，降价 2，下架 4；已推送 1 条
+上次汇总 09-11 09:00
+```
+
+> [!TIP]
+> 日报的用途不是“多一条推送”，而是**把“手机很安静”这个二义信号变成单义**：日报到了，说明抓取与推送链路都通；日报没到，就是系统出了问题。此前“进程挂了”与“最近确实没新品”在体感上完全一样。
+>
+> 其中的**命中规则数**还能暴露规则写错——维度键名抄错、型号猜错（如 `refurbClearModel: [watchultra4]` 猜错了实际命名）都不会有任何报错，表现只是这个数字长期为 0。
+>
+> 它不产生任何额外抓取，只把已有状态读一遍；触发时刻按运行机器的本地时区。新部署起来后会立刻发一份，这是“装好了确实在跑”的确认，也让你第一眼就看到规则当前命中几件。
+
 ---
 
 ## 监控范围
@@ -451,7 +470,7 @@ notify:
 - 配置文件中支持 `${VAR}` 与 `${VAR:-默认值}` 语法。**引用了未设置且无默认值的变量会立即报错退出**，杜绝静默失败。
 - `enabled: false` 的渠道会整棵跳过变量展开，未启用的渠道无需配置多余环境变量。
 - 密钥推荐存放在 `.env` 文件或系统环境变量中（`.env`、`configs/config.yaml` 均已被 Git 忽略）。
-- 常用项可直接通过环境变量覆盖：`REFURB_INTERVAL`、`REFURB_REGIONS`、`REFURB_CATEGORIES`、`REFURB_PROXY`、`REFURB_STATE_PATH`、`REFURB_LOG_LEVEL`、`REFURB_DIGEST_THRESHOLD`。
+- 常用项可直接通过环境变量覆盖：`REFURB_INTERVAL`、`REFURB_REGIONS`、`REFURB_CATEGORIES`、`REFURB_PROXY`、`REFURB_STATE_PATH`、`REFURB_LOG_LEVEL`、`REFURB_DIGEST_THRESHOLD`、`REFURB_DAILY_SUMMARY`。
 
 ### 请求频率与 CDN 缓存原理
 

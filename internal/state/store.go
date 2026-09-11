@@ -39,6 +39,11 @@ func Load(path string) (*State, error) {
 	if s.Bootstrapped == nil {
 		s.Bootstrapped = make(map[string]bool)
 	}
+	// 旧状态文件里没有 counters:日报计数从本次启动开始累计,不必升 stateVersion
+	// 让所有存量用户重建基线——重建的代价(丢掉全部 first_seen)远大于少算一天计数。
+	if s.Counters == nil {
+		s.Counters = make(map[string]Counter)
+	}
 	return &s, nil
 }
 

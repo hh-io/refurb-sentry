@@ -43,6 +43,16 @@ func (e Entry) Product() apple.Product {
 	}
 }
 
+// Counter 是单个 region/category 自上次日报以来的事件计数。
+// Pushed 是其中真正推送出去的条数(已过规则过滤):它与前三项的差额
+// 正是「规则挡掉了多少」,规则写得太紧时一眼可见。
+type Counter struct {
+	Listed    int `json:"listed,omitempty"`
+	PriceDrop int `json:"price_drop,omitempty"`
+	Delisted  int `json:"delisted,omitempty"`
+	Pushed    int `json:"pushed,omitempty"`
+}
+
 type State struct {
 	Version   int              `json:"version"`
 	UpdatedAt time.Time        `json:"updated_at"`
@@ -50,6 +60,21 @@ type State struct {
 
 	// EmptyStreak 按 "region/category" 记录连续抓到空列表的轮数。
 	EmptyStreak map[string]int `json:"empty_streak,omitempty"`
+
+	// Counters 按 "region/category" 累计自 CountersSince 以来的事件数,供日报汇总。
+	//
+	// 放进 State 而不是 Runner 的内存里有两个理由:重启不清零;
+	// 以及推送全败回滚基线时它必须跟着一起退回——那批事件下一轮会重新产生,
+	// 不回滚就会被计两次,日报数字凭空翻倍。Clone 因此必须一并深拷贝。
+	Counters map[string]Counter `json:"counters,omitempty"`
+
+	// CountersSince 是当前这批计数的起点,只在日报成功发出后推进。
+	// 与 LastSummaryAt 分开:连续送达失败放弃某次汇总时 LastSummaryAt 会推进
+	// (否则当天会一直重试),而计数要留到下一份日报里,那时「自 X 以来」仍须准确。
+	CountersSince time.Time `json:"counters_since,omitempty"`
+
+	// LastSummaryAt 是上次发出日报的时刻,用于判断今天是否已经发过。
+	LastSummaryAt time.Time `json:"last_summary_at,omitempty"`
 
 	// Bootstrapped 按 "region/category" 记录该范围是否已建立基线。
 	//
@@ -66,6 +91,7 @@ func New() *State {
 		Items:        make(map[string]Entry),
 		EmptyStreak:  make(map[string]int),
 		Bootstrapped: make(map[string]bool),
+		Counters:     make(map[string]Counter),
 	}
 }
 
@@ -173,6 +199,72 @@ func (s *State) CountScope(region, category string) int {
 	return n
 }
 
+// ScopeEntries 返回某地区某分类当前记录的全部商品。
+// 日报据此对在架商品重跑一遍规则,给出「现在有几件命中」——
+// 这个数字在别处看不到,而规则写错(维度键名抄错、型号猜错)的表现
+// 正是它长期为 0,否则用户只能靠「一直没收到推送」去猜。
+func (s *State) ScopeEntries(region, category string) []Entry {
+	prefix := region + "/" + category + "/"
+	var out []Entry
+	for k, e := range s.Items {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// CountEvents 把一批事件累计进各自 scope 的计数器。
+//
+// 必须在 Apply 之后、推送之前调用:计数器与基线同属一份状态,
+// 推送全败回滚时它跟着一起退回,下一轮重新产生的同一批事件才不会被计两次。
+func (s *State) CountEvents(events []Event) {
+	for _, ev := range events {
+		c := s.counter(ev.Product.Region, ev.Product.Category)
+		switch ev.Kind {
+		case EventListed:
+			c.Listed++
+		case EventPriceDrop:
+			c.PriceDrop++
+		case EventDelisted:
+			c.Delisted++
+		}
+		s.setCounter(ev.Product.Region, ev.Product.Category, c)
+	}
+}
+
+// CountPushed 记录已推送出去的事件(即通过了规则过滤的那些)。
+func (s *State) CountPushed(events []Event) {
+	for _, ev := range events {
+		c := s.counter(ev.Product.Region, ev.Product.Category)
+		c.Pushed++
+		s.setCounter(ev.Product.Region, ev.Product.Category, c)
+	}
+}
+
+// ScopeCounter 返回某地区某分类当前的累计值。
+func (s *State) ScopeCounter(region, category string) Counter {
+	return s.counter(region, category)
+}
+
+// ResetCounters 清空全部计数并把区间起点推到 now,在日报成功发出后调用。
+func (s *State) ResetCounters(now time.Time) {
+	s.Counters = make(map[string]Counter)
+	s.CountersSince = now
+}
+
+func (s *State) counter(region, category string) Counter {
+	return s.Counters[region+"/"+category]
+}
+
+func (s *State) setCounter(region, category string, c Counter) {
+	// 从旧版状态文件加载时 counters 字段不存在,Load 不会替我们建好这个 map。
+	if s.Counters == nil {
+		s.Counters = make(map[string]Counter)
+	}
+	s.Counters[region+"/"+category] = c
+}
+
 // Clone 返回一份深拷贝,供调用方在推送失败时回滚整轮变更。
 //
 // Apply 是原地修改的:事件一旦算出,内存里的旧价格/旧条目就已经被覆盖或删除,
@@ -180,11 +272,14 @@ func (s *State) CountScope(region, category string) int {
 // 因此推送前先留一份快照,全军覆没时整体还原。
 func (s *State) Clone() *State {
 	c := &State{
-		Version:      s.Version,
-		UpdatedAt:    s.UpdatedAt,
-		Items:        make(map[string]Entry, len(s.Items)),
-		EmptyStreak:  make(map[string]int, len(s.EmptyStreak)),
-		Bootstrapped: make(map[string]bool, len(s.Bootstrapped)),
+		Version:       s.Version,
+		UpdatedAt:     s.UpdatedAt,
+		CountersSince: s.CountersSince,
+		LastSummaryAt: s.LastSummaryAt,
+		Items:         make(map[string]Entry, len(s.Items)),
+		EmptyStreak:   make(map[string]int, len(s.EmptyStreak)),
+		Bootstrapped:  make(map[string]bool, len(s.Bootstrapped)),
+		Counters:      make(map[string]Counter, len(s.Counters)),
 	}
 	for k, e := range s.Items {
 		// Dimensions 同样复制:当前 Apply 只整体替换该 map 而不原地改写,
@@ -203,6 +298,9 @@ func (s *State) Clone() *State {
 	}
 	for k, v := range s.Bootstrapped {
 		c.Bootstrapped[k] = v
+	}
+	for k, v := range s.Counters {
+		c.Counters[k] = v
 	}
 	return c
 }

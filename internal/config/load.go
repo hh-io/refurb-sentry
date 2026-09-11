@@ -180,6 +180,10 @@ func applyEnvOverrides(c *Config) error {
 		}
 		c.Notify.DigestThreshold = n
 	}
+	if v := os.Getenv("REFURB_DAILY_SUMMARY"); v != "" {
+		// 合法性统一交给 Validate,这里只负责覆盖,避免两处各写一份解析。
+		c.Notify.DailySummary = v
+	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/hh-io/refurb-sentry/internal/apple"
 	"github.com/hh-io/refurb-sentry/internal/state"
@@ -229,5 +230,56 @@ func (r *Renderer) Digest(evs []state.Event) Message {
 		URL:    url,
 		Group:  r.group,
 		Events: views,
+	}
+}
+
+// SummaryScope 是日报里的一个地区分类。
+type SummaryScope struct {
+	Region   string
+	Category string
+	// InStock 是当前在架数,Counter 是自上次日报以来的累计变动。
+	InStock int
+	Counter state.Counter
+	// RuleMatches 是当前在架商品里有多少件命中规则。
+	RuleMatches int
+}
+
+// DailySummary 渲染每日汇总。
+//
+// 刻意不带任何商品链接:日报的用途是证明「系统还活着、规则还在命中」,
+// 不是让人点进去买;而在多件商品里挑一条链接只会把人点到错的机器上,
+// 这正是 digest_threshold 那边已经踩过的坑。
+func (r *Renderer) DailySummary(now, since time.Time, scopes []SummaryScope) Message {
+	var b strings.Builder
+	var total state.Counter
+	for _, sc := range scopes {
+		fmt.Fprintf(&b, r.p.summaryScope,
+			sc.Region+"/"+sc.Category, sc.InStock,
+			sc.Counter.Listed, sc.Counter.Delisted, sc.RuleMatches)
+		b.WriteString("\n")
+		total.Listed += sc.Counter.Listed
+		total.PriceDrop += sc.Counter.PriceDrop
+		total.Delisted += sc.Counter.Delisted
+		total.Pushed += sc.Counter.Pushed
+	}
+
+	b.WriteString("\n")
+	if total == (state.Counter{}) {
+		b.WriteString(r.p.summaryEmpty)
+	} else {
+		fmt.Fprintf(&b, r.p.summaryTotals, total.Listed, total.PriceDrop, total.Delisted, total.Pushed)
+	}
+
+	b.WriteString("\n")
+	if since.IsZero() {
+		b.WriteString(r.p.summarySinceStart)
+	} else {
+		fmt.Fprintf(&b, r.p.summarySince, since.Format("01-02 15:04"))
+	}
+
+	return Message{
+		Title: fmt.Sprintf(r.p.summaryTitle, now.Format("2006-01-02")),
+		Body:  b.String(),
+		Group: r.group,
 	}
 }

@@ -57,6 +57,16 @@ type phrases struct {
 	rulesMany   string
 	ruleSep     string
 
+	summaryTitle string
+	summaryScope string
+	// summaryTotals 的四个数按「上架、降价、下架、已推送」顺序传入,
+	// 英文词序相同,因此两种语言都不需要显式参数索引。
+	summaryTotals string
+	summarySince  string
+	// summarySinceStart 用于首份日报:此前没有任何汇总,说不出「自上次以来」。
+	summarySinceStart string
+	summaryEmpty      string
+
 	digestTitle string
 	// digestCount 用显式参数索引:中文是「上架 6」,英文是「6 listings」,词序相反。
 	digestCount string
@@ -73,16 +83,22 @@ var langPhrases = map[Lang]phrases{
 			state.EventPriceDrop: {label: "降价", countOne: "降价", countMany: "降价"},
 			state.EventDelisted:  {label: "下架", countOne: "下架", countMany: "下架"},
 		},
-		eventTitle:    "%s · %s %s",
-		priceChange:   "%s → %s（降 %s，%.1f%%）",
-		rulesOne:      "\n命中规则：%s",
-		rulesMany:     "\n命中规则：%s",
-		ruleSep:       "、",
-		digestTitle:   "翻新监控 · %s",
-		digestCount:   "%[1]s %[2]d",
-		digestLine:    "[%s] %s %s",
-		digestMore:    "…… 另有 %d 条",
-		consoleHeader: "\n──────── 通知 ────────\n标题: %s\n%s\n链接: %s\n分组: %s\n",
+		eventTitle:        "%s · %s %s",
+		priceChange:       "%s → %s（降 %s，%.1f%%）",
+		rulesOne:          "\n命中规则：%s",
+		rulesMany:         "\n命中规则：%s",
+		ruleSep:           "、",
+		summaryTitle:      "翻新监控日报 · %s",
+		summaryScope:      "%s 在架 %d（+%d / -%d），命中规则 %d",
+		summaryTotals:     "自上次汇总以来：上架 %d，降价 %d，下架 %d；已推送 %d 条",
+		summarySince:      "上次汇总 %s",
+		summarySinceStart: "首次汇总，此前的变动未计入",
+		summaryEmpty:      "本期没有任何变动",
+		digestTitle:       "翻新监控 · %s",
+		digestCount:       "%[1]s %[2]d",
+		digestLine:        "[%s] %s %s",
+		digestMore:        "…… 另有 %d 条",
+		consoleHeader:     "\n──────── 通知 ────────\n标题: %s\n%s\n链接: %s\n分组: %s\n",
 	},
 	LangEN: {
 		kinds: map[state.EventKind]kindWords{
@@ -90,16 +106,22 @@ var langPhrases = map[Lang]phrases{
 			state.EventPriceDrop: {label: "Price drop", countOne: "price drop", countMany: "price drops"},
 			state.EventDelisted:  {label: "Delisted", countOne: "delisting", countMany: "delistings"},
 		},
-		eventTitle:    "%s · %s %s",
-		priceChange:   "%s → %s (down %s, %.1f%%)",
-		rulesOne:      "\nMatched rule: %s",
-		rulesMany:     "\nMatched rules: %s",
-		ruleSep:       ", ",
-		digestTitle:   "Refurb watch · %s",
-		digestCount:   "%[2]d %[1]s",
-		digestLine:    "[%s] %s %s",
-		digestMore:    "... and %d more",
-		consoleHeader: "\n──────── notification ────────\nTitle: %s\n%s\nURL: %s\nGroup: %s\n",
+		eventTitle:        "%s · %s %s",
+		priceChange:       "%s → %s (down %s, %.1f%%)",
+		rulesOne:          "\nMatched rule: %s",
+		rulesMany:         "\nMatched rules: %s",
+		ruleSep:           ", ",
+		summaryTitle:      "Refurb watch daily · %s",
+		summaryScope:      "%s: %d in stock (+%d / -%d), rule matches %d",
+		summaryTotals:     "Since last summary: %d listed, %d price drops, %d delisted; %d pushed",
+		summarySince:      "Last summary %s",
+		summarySinceStart: "First summary; earlier changes are not counted",
+		summaryEmpty:      "No changes in this period",
+		digestTitle:       "Refurb watch · %s",
+		digestCount:       "%[2]d %[1]s",
+		digestLine:        "[%s] %s %s",
+		digestMore:        "... and %d more",
+		consoleHeader:     "\n──────── notification ────────\nTitle: %s\n%s\nURL: %s\nGroup: %s\n",
 	},
 }
 

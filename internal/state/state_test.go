@@ -2,6 +2,7 @@ package state
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -262,5 +263,64 @@ func TestRestoreOverwritesInPlace(t *testing.T) {
 	}
 	if s.CountScope("CN", "mac") != 1 {
 		t.Fatalf("Restore 应还原到 1 条记录,实际 %d", s.CountScope("CN", "mac"))
+	}
+}
+
+// Clone 是逐字段手写的,新增一个 map 字段却忘了在里面拷贝不会有任何编译错误,
+// 失败方式却很难查:推送失败回滚时那个字段不退回,日报计数凭空翻倍。
+// 这里用反射遍历 State 的每个字段,要求 map 字段既非空又不与原状态共享底层数组。
+func TestCloneCoversEveryField(t *testing.T) {
+	now := time.Now()
+	s := New()
+	s.Apply("CN", "mac", []apple.Product{prod("A", 100)}, now)
+	s.EmptyStreak["CN/watch"] = 1
+	s.CountEvents([]Event{{Kind: EventListed, Product: prod("B", 200)}})
+	s.CountersSince = now.Add(-24 * time.Hour)
+	s.LastSummaryAt = now.Add(-12 * time.Hour)
+
+	c := s.Clone()
+	v, cv := reflect.ValueOf(*s), reflect.ValueOf(*c)
+	for i := range v.NumField() {
+		name := v.Type().Field(i).Name
+		if v.Field(i).Kind() != reflect.Map {
+			if !reflect.DeepEqual(v.Field(i).Interface(), cv.Field(i).Interface()) {
+				t.Errorf("Clone 漏拷字段 %s: 原 %v,副本 %v", name, v.Field(i), cv.Field(i))
+			}
+			continue
+		}
+		// 样本本身得非空,否则这条断言什么也守不住。
+		if v.Field(i).Len() == 0 {
+			t.Fatalf("测试样本里的 %s 是空 map,守不住任何东西", name)
+		}
+		if cv.Field(i).Len() != v.Field(i).Len() {
+			t.Errorf("Clone 漏拷字段 %s: 原 %d 项,副本 %d 项", name, v.Field(i).Len(), cv.Field(i).Len())
+		}
+		if cv.Field(i).Pointer() == v.Field(i).Pointer() {
+			t.Errorf("Clone 的 %s 与原状态共享同一个 map,快照会被后续写入污染", name)
+		}
+	}
+}
+
+func TestCountEventsSeparatesScopes(t *testing.T) {
+	s := New()
+	watch := apple.Product{Region: "CN", Category: "watch", PartNumber: "W1"}
+	s.CountEvents([]Event{
+		{Kind: EventListed, Product: prod("A", 100)},
+		{Kind: EventListed, Product: prod("B", 100)},
+		{Kind: EventPriceDrop, Product: prod("A", 90)},
+		{Kind: EventDelisted, Product: watch},
+	})
+	s.CountPushed([]Event{{Kind: EventListed, Product: prod("A", 100)}})
+
+	if got := s.ScopeCounter("CN", "mac"); got != (Counter{Listed: 2, PriceDrop: 1, Pushed: 1}) {
+		t.Errorf("CN/mac 计数不对: %+v", got)
+	}
+	if got := s.ScopeCounter("CN", "watch"); got != (Counter{Delisted: 1}) {
+		t.Errorf("CN/watch 计数不对: %+v", got)
+	}
+
+	s.ResetCounters(time.Now())
+	if got := s.ScopeCounter("CN", "mac"); got != (Counter{}) {
+		t.Errorf("ResetCounters 之后仍有残留: %+v", got)
 	}
 }

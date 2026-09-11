@@ -157,6 +157,25 @@ Refurb watch · 6 listings / 2 price drops
 ...
 ```
 
+
+### Daily Summary (disabled by default; enable with `notify.daily_summary: "09:00"`)
+
+```text
+Refurb watch daily · 2026-09-12
+CN/mac: 206 in stock (+8 / -4), rule matches 1
+CN/watch: 28 in stock (+0 / -0), rule matches 0
+
+Since last summary: 8 listed, 2 price drops, 4 delisted; 1 pushed
+Last summary 09-11 09:00
+```
+
+> [!TIP]
+> The point is not one more notification — it is to **turn "my phone has been quiet" from an ambiguous signal into a definite one**: the summary arrives, so both the fetch and the delivery path work; it fails to arrive, so something is broken. Until now "the process died" and "nothing new was listed" looked identical from the outside.
+>
+> The **rule match count** also exposes broken rules: a mistyped dimension key or a guessed model name (say `refurbClearModel: [watchultra4]` when upstream names it differently) never raises an error — it just shows up as this number sitting at 0 forever.
+>
+> It performs no extra fetches, only re-reads existing state, and fires in the machine's local time zone. A fresh deployment sends one immediately: that doubles as confirmation that the install works, and shows you straight away how many products your rules currently match.
+
 ---
 
 ## Coverage
@@ -480,7 +499,7 @@ An unrecognised `lang` is a fatal startup error, not a silent fallback to the de
 - Supports `${VAR}` and `${VAR:-default}` syntax. **Unset variables without defaults cause immediate startup failure**, avoiding silent errors.
 - Channels configured with `enabled: false` skip variable expansion entirely.
 - Store credentials in `.env` or system environment variables (`.env`, `configs/config.yaml`, and `data/` are gitignored).
-- Overridable via environment variables: `REFURB_INTERVAL`, `REFURB_REGIONS`, `REFURB_CATEGORIES`, `REFURB_PROXY`, `REFURB_STATE_PATH`, `REFURB_LOG_LEVEL`, `REFURB_DIGEST_THRESHOLD`.
+- Overridable via environment variables: `REFURB_INTERVAL`, `REFURB_REGIONS`, `REFURB_CATEGORIES`, `REFURB_PROXY`, `REFURB_STATE_PATH`, `REFURB_LOG_LEVEL`, `REFURB_DIGEST_THRESHOLD`, `REFURB_DAILY_SUMMARY`.
 
 ### Request Frequency & CDN Caching
 
