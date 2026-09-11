@@ -213,6 +213,20 @@
   那些只留在全量版与 README 里——同一个事实写在两处,过期的那份不会有任何东西报错。
   它靠默认值补全其余字段,`TestExampleConfigIsMinimalAndRunnable` 守着它能加载、
   且**不产生任何 warning**:起手第一次运行就看到 WARN 会让人以为自己配错了。
+- **日志用自定义的 `consoleHandler`(`cmd/refurb-sentry/log.go`),不是 slog 的 TextHandler**。
+  TextHandler 固定输出 `time=/level=/msg=` 这些键名:实测「本轮无变化」那一行
+  65 个字符里有 49 个是这类样板,而本项目不输出 JSON,没有任何机器在解析它,
+  这些日志从头到尾是给人看的。
+  时间因此精确到秒(轮询间隔 120 秒,毫秒是噪音)且**不带时区**——
+  时区整个进程生命周期不变,改在启动那一行用 `tzLabel` 打一次
+  (`tz=Asia/Shanghai(+08:00)`,没设 TZ 时 `Location()` 是无信息量的 "Local",
+  所以偏移必须一起打)。同一行还打 `daily_summary=`,因为日报正是按 TZ 触发的,
+  而容器里默认 UTC 会让配好的 09:00 在别的时刻送达。
+  值只在含空格/引号/等号时才加引号,且**必须用 `strconv.Quote` 而不是 `QuoteToASCII`**:
+  后者会把中文转义成 `\uXXXX`,而日志一律中文是既定约定,转了就全是天书。
+  `TestConsoleHandlerLineFormat` 用**整行精确匹配**钉住格式(只查关键字会放过
+  多一个空格、级别没对齐这类回归),`TestConsoleHandlerKeepsChineseReadable`
+  与 `TestTZLabelAlwaysCarriesOffset` 各守一条。
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 

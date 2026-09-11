@@ -126,11 +126,32 @@ func NewRunner(opt Options) (*Runner, error) {
 	return r, nil
 }
 
+// tzLabel 描述当前时区,用在启动那一行。
+//
+// 只打 Location().String() 是不够的:没设 TZ 时它是无信息量的 "Local"。
+// 而时区正是 notify.daily_summary 的触发依据,容器里默认 UTC 会让配好的
+// 09:00 在别的时刻送达,启动日志得让人一眼看出来。
+func tzLabel(t time.Time) string {
+	_, off := t.Zone()
+	sign := "+"
+	if off < 0 {
+		sign, off = "-", -off
+	}
+	return fmt.Sprintf("%s(%s%02d:%02d)", t.Location(), sign, off/3600, off%3600/60)
+}
+
 // Run 阻塞执行监控循环,直到 ctx 被取消。
 func (r *Runner) Run(ctx context.Context) error {
+	// 时区与日报时刻一起打:daily_summary 按进程的 TZ 触发,而容器里默认是 UTC,
+	// 不打出来的话「为什么 09:00 没收到」只能靠猜。
+	summary := "关闭"
+	if r.summaryAt != nil {
+		summary = r.cfg.Notify.DailySummary
+	}
 	r.log.Info("开始监控",
 		"scopes", len(r.scopes), "interval", r.cfg.Interval.Std().String(),
-		"channels", r.notif.Names(), "state", r.cfg.StatePath)
+		"channels", r.notif.Names(), "state", r.cfg.StatePath,
+		"tz", tzLabel(time.Now()), "daily_summary", summary)
 
 	if err := r.RunOnce(ctx); err != nil {
 		// 首轮尚未结束就收到退出信号时,与 ticker 分支保持一致:

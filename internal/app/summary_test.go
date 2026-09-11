@@ -431,3 +431,30 @@ func TestSummarySentEvenWhenDispatchFails(t *testing.T) {
 		t.Error("事件推送失败却没有回滚基线")
 	}
 }
+
+// 没设 TZ 时 Location() 是无信息量的 "Local",而时区正是日报的触发依据:
+// 容器里默认 UTC 会让配好的 09:00 在别的时刻送达,启动日志必须带上实际偏移,
+// 否则「为什么 09:00 没收到」只能靠猜。
+func TestTZLabelAlwaysCarriesOffset(t *testing.T) {
+	cases := map[string]string{
+		"Asia/Shanghai":    "Asia/Shanghai(+08:00)",
+		"America/New_York": "America/New_York(-05:00)",
+		"UTC":              "UTC(+00:00)",
+	}
+	for zone, want := range cases {
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			t.Skipf("系统缺少时区库 %s: %v", zone, err)
+		}
+		// 取一个不在夏令时里的日期,免得偏移随季节变化。
+		if got := tzLabel(time.Date(2026, 1, 15, 12, 0, 0, 0, loc)); got != want {
+			t.Errorf("时区 %s -> %q,期望 %q", zone, got, want)
+		}
+	}
+
+	// 未设 TZ 的进程拿到的是 time.Local,名字是 "Local" 这种没信息量的字符串,
+	// 但偏移必须照样打出来。
+	if got := tzLabel(time.Now()); !strings.Contains(got, "(") || !strings.HasSuffix(got, ")") {
+		t.Errorf("本地时区没带上偏移: %q", got)
+	}
+}

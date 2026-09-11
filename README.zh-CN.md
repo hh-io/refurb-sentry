@@ -180,7 +180,12 @@ CN/watch 在架 28（+0 / -0），命中规则 0
 >
 > 它不产生任何额外抓取，只把已有状态读一遍，当天只发一份。新部署起来后**不等到点立刻发一份**（08:00 装好、配的 09:00 也会马上收到），这是“装好了确实在跑”的确认，也让你第一眼就看到规则当前命中几件；当天到点时不会再发第二份。
 >
-> **时区取自进程的 `TZ` 环境变量，没有设置时用服务器的系统时区**——配置文件里没有这一项。
+> **时区取自进程的 `TZ` 环境变量，没有设置时用服务器的系统时区**——配置文件里没有这一项。启动日志第一行会打出实际生效的时区与日报时刻，配错了一眼能看出来：
+>
+> ```text
+> 2026-09-11 20:19:41 INFO  开始监控 scopes=1 interval=2m0s tz=Asia/Shanghai(+08:00) daily_summary=09:00
+> ```
+
 > - **Docker**：`deploy/docker-compose.yml` 已默认 `TZ: ${TZ:-Asia/Shanghai}`，要改就在 `deploy/.env` 里写 `TZ=Europe/Berlin`（镜像内置 tzdata，填 IANA 名称即可）。
 > - **systemd / launchd**：跟随服务器的系统时区（`/etc/localtime`）。**云主机默认往往是 UTC**，那时配 `09:00` 会在北京时间 17:00 才送达。用 `timedatectl set-timezone Asia/Shanghai` 改掉，或在 unit 的 `EnvironmentFile` 里加一行 `TZ=Asia/Shanghai`。
 

@@ -180,7 +180,12 @@ Last summary 09-11 09:00
 >
 > It performs no extra fetches, only re-reads existing state, and sends at most one per day. A fresh deployment sends one **immediately, without waiting for the configured time** (install at 08:00 with `daily_summary: "09:00"` and it arrives at once): that doubles as confirmation that the install works, and shows you straight away how many products your rules currently match. It will not send a second one when that time comes around the same day.
 >
-> **The time zone comes from the process's `TZ` environment variable, falling back to the server's system time zone** — there is no config key for it.
+> **The time zone comes from the process's `TZ` environment variable, falling back to the server's system time zone** — there is no config key for it. The first line of the startup log prints the zone actually in effect along with the summary time, so a misconfiguration is visible at a glance:
+>
+> ```text
+> 2026-09-11 20:19:41 INFO  开始监控 scopes=1 interval=2m0s tz=Asia/Shanghai(+08:00) daily_summary=09:00
+> ```
+
 > - **Docker**: `deploy/docker-compose.yml` already defaults to `TZ: ${TZ:-Asia/Shanghai}`; override it with `TZ=Europe/Berlin` in `deploy/.env` (the image ships tzdata, so IANA names work).
 > - **systemd / launchd**: follows the server's system time zone (`/etc/localtime`). **Cloud hosts often default to UTC**, in which case `09:00` fires at 09:00 UTC. Fix it with `timedatectl set-timezone <zone>`, or add `TZ=<zone>` to the unit's `EnvironmentFile`.
 
