@@ -23,11 +23,16 @@ const logTimeLayout = "2006-01-02 15:04:05"
 // 实测「本轮无变化」那一行 65 个字符里有 49 个是这类样板。
 // 而这些日志是给人看的——本项目不输出 JSON,没有任何机器在解析它。
 type consoleHandler struct {
-	mu     *sync.Mutex
-	w      io.Writer
-	level  slog.Level
-	attrs  []slog.Attr
-	groups []string
+	mu    *sync.Mutex
+	w     io.Writer
+	level slog.Level
+	// preformatted 是 WithAttrs 累积下来、已经带好各自分组前缀的属性文本。
+	// 必须在 WithAttrs 的当下就格式化:slog 的契约是只有 WithGroup 之后添加的
+	// 属性才归入该组,留着原始 attr 到 Handle 再统一套前缀,会把此前添加的
+	// 也一并套进去(实测 TextHandler 给的是 scope=CN/mac http.status=503,
+	// 而那种写法会打成 http.scope=CN/mac)。
+	preformatted string
+	groups       []string
 }
 
 func newConsoleHandler(w io.Writer, level slog.Level) *consoleHandler {
@@ -41,8 +46,12 @@ func (h *consoleHandler) WithAttrs(as []slog.Attr) slog.Handler {
 		return h
 	}
 	n := *h
-	// Clip 之后再 append:不裁掉多余容量的话,两个派生 logger 会写进同一段底层数组。
-	n.attrs = append(slices.Clip(h.attrs), as...)
+	var b strings.Builder
+	b.WriteString(h.preformatted)
+	for _, a := range as {
+		appendAttr(&b, h.groups, a)
+	}
+	n.preformatted = b.String()
 	return &n
 }
 
@@ -63,9 +72,7 @@ func (h *consoleHandler) Handle(_ context.Context, r slog.Record) error {
 	fmt.Fprintf(&b, "%-5s ", r.Level.String())
 	b.WriteString(r.Message)
 
-	for _, a := range h.attrs {
-		appendAttr(&b, h.groups, a)
-	}
+	b.WriteString(h.preformatted)
 	r.Attrs(func(a slog.Attr) bool {
 		appendAttr(&b, h.groups, a)
 		return true
@@ -88,8 +95,12 @@ func appendAttr(b *strings.Builder, groups []string, a slog.Attr) {
 		if len(sub) == 0 {
 			return
 		}
+		// slog 规定空 key 的 Group 要内联,不加前缀——否则会打出 "g..k=1"。
+		if a.Key != "" {
+			groups = append(groups, a.Key)
+		}
 		for _, s := range sub {
-			appendAttr(b, append(groups, a.Key), s)
+			appendAttr(b, groups, s)
 		}
 		return
 	}

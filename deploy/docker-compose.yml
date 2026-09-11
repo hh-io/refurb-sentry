@@ -27,7 +27,7 @@ services:
       # REFURB_DAILY_SUMMARY: ""
 
     # Docker 默认的 json-file 驱动**不限大小**,常驻进程的日志会一直涨到塞满磁盘。
-    # 稳态每轮至少一行(默认 2 分钟一轮),一年约 50MB;网络抖动时每轮还会多几行 WARN,
+    # 稳态每轮至少一行(默认 2 分钟一轮,每行约 40 字节),一年约 10MB;网络抖动时每轮还会多几行 WARN,
     # log_level 调成 debug 更是成倍。限制成 3 个 10MB 文件,总量封顶 30MB。
     logging:
       driver: json-file

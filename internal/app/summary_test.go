@@ -442,18 +442,24 @@ func TestTZLabelAlwaysCarriesOffset(t *testing.T) {
 		"UTC":              "UTC(+00:00)",
 	}
 	for zone, want := range cases {
-		loc, err := time.LoadLocation(zone)
-		if err != nil {
-			t.Skipf("系统缺少时区库 %s: %v", zone, err)
-		}
-		// 取一个不在夏令时里的日期,免得偏移随季节变化。
-		if got := tzLabel(time.Date(2026, 1, 15, 12, 0, 0, 0, loc)); got != want {
-			t.Errorf("时区 %s -> %q,期望 %q", zone, got, want)
-		}
+		// 必须用子测试:t.Skip 会终止整个测试函数,写在循环里的话,
+		// 没有系统时区库的环境(scratch/distroless 镜像、Windows)会连同下面
+		// 那条「本地时区必须带偏移」的断言一起跳过——而那条恰恰不依赖时区库,
+		// 也正是这个测试最该守住的东西。
+		t.Run(zone, func(t *testing.T) {
+			loc, err := time.LoadLocation(zone)
+			if err != nil {
+				t.Skipf("系统缺少时区库: %v", err)
+			}
+			// 取一个不在夏令时里的日期,免得偏移随季节变化。
+			if got := tzLabel(time.Date(2026, 1, 15, 12, 0, 0, 0, loc)); got != want {
+				t.Errorf("%q,期望 %q", got, want)
+			}
+		})
 	}
 
 	// 未设 TZ 的进程拿到的是 time.Local,名字是 "Local" 这种没信息量的字符串,
-	// 但偏移必须照样打出来。
+	// 但偏移必须照样打出来。这条不依赖系统时区库,任何环境都要跑。
 	if got := tzLabel(time.Now()); !strings.Contains(got, "(") || !strings.HasSuffix(got, ")") {
 		t.Errorf("本地时区没带上偏移: %q", got)
 	}

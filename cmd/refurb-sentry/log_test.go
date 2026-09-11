@@ -163,6 +163,44 @@ func TestConsoleHandlerWithAttrsAndGroup(t *testing.T) {
 	}
 }
 
+// slog 的契约:只有 WithGroup **之后**添加的属性才归入该组。
+// 把原始 attr 留到 Handle 再统一套前缀会把之前添加的也套进去,而上面那个
+// 非交错的用例照样通过——测试写松了等于给了一个虚假的「契约合规」保证。
+// 这里逐字对照 TextHandler 的输出。
+func TestConsoleHandlerGroupOnlyQualifiesLaterAttrs(t *testing.T) {
+	cases := map[string]func(*slog.Logger){
+		"With 之后再 WithGroup": func(l *slog.Logger) {
+			l.With("scope", "CN/mac").WithGroup("http").With("status", 503).Info("请求")
+		},
+		"空 key 的 Group 内联": func(l *slog.Logger) {
+			l.WithGroup("g").Info("m", slog.Group("", "k", 1))
+		},
+		"嵌套 Group": func(l *slog.Logger) {
+			l.Info("m", slog.Group("a", slog.Group("b", "k", 1)))
+		},
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			var mine, std bytes.Buffer
+			run(slog.New(newConsoleHandler(&mine, slog.LevelDebug)))
+			// TextHandler 作为基准,去掉它的 time/level,只留 msg 与属性。
+			run(slog.New(slog.NewTextHandler(&std, &slog.HandlerOptions{
+				ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+					if a.Key == slog.TimeKey || a.Key == slog.LevelKey {
+						return slog.Attr{}
+					}
+					return a
+				},
+			})))
+			wantAttrs := strings.TrimPrefix(strings.TrimRight(std.String(), "\n"), "msg=")
+			gotAttrs := strings.TrimRight(mine.String(), "\n")
+			if !strings.HasSuffix(gotAttrs, wantAttrs) {
+				t.Errorf("与 TextHandler 的分组语义不一致\n got: %s\nwant 以 %q 结尾", gotAttrs, wantAttrs)
+			}
+		})
+	}
+}
+
 // Handler 要能被多个 goroutine 同时写而不撕裂成半行。
 func TestConsoleHandlerConcurrentWrites(t *testing.T) {
 	var buf bytes.Buffer

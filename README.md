@@ -183,9 +183,9 @@ Last summary 09-11 09:00
 > **The time zone comes from the process's `TZ` environment variable, falling back to the server's system time zone** — there is no config key for it. The first line of the startup log prints the zone actually in effect along with the summary time, so a misconfiguration is visible at a glance:
 >
 > ```text
-> 2026-09-11 20:19:41 INFO  开始监控 scopes=1 interval=2m0s tz=Asia/Shanghai(+08:00) daily_summary=09:00
+> 2026-09-11 20:31:29 INFO  开始监控 scopes=1 interval=2m0s channels=[bark] state=data/state.json tz=Asia/Shanghai(+08:00) daily_summary=09:00
 > ```
-
+>
 > - **Docker**: `deploy/docker-compose.yml` already defaults to `TZ: ${TZ:-Asia/Shanghai}`; override it with `TZ=Europe/Berlin` in `deploy/.env` (the image ships tzdata, so IANA names work).
 > - **systemd / launchd**: follows the server's system time zone (`/etc/localtime`). **Cloud hosts often default to UTC**, in which case `09:00` fires at 09:00 UTC. Fix it with `timedatectl set-timezone <zone>`, or add `TZ=<zone>` to the unit's `EnvironmentFile`.
 
@@ -566,7 +566,7 @@ Services automatically restart with a 30s backoff on crash and flush state clean
 
 The program writes no log files of its own — everything goes to stdout for the
 supervisor to collect. In steady state that is at least one line per polling round
-(every 2 minutes by default), roughly 25MB a year; network hiccups add WARN lines, and
+(every 2 minutes by default, about 40 bytes each), roughly 10MB a year; network hiccups add WARN lines, and
 `log_level: debug` multiplies it. **Rotation differs by supervisor**, so it is worth
 checking before leaving this running for months:
 

@@ -224,9 +224,19 @@
   而容器里默认 UTC 会让配好的 09:00 在别的时刻送达。
   值只在含空格/引号/等号时才加引号,且**必须用 `strconv.Quote` 而不是 `QuoteToASCII`**:
   后者会把中文转义成 `\uXXXX`,而日志一律中文是既定约定,转了就全是天书。
+  `WithAttrs` 在**添加的当下**就把属性格式化进 `preformatted`,不是留到 `Handle`
+  再统一套分组前缀:slog 的契约是只有 `WithGroup` 之后添加的属性才归入该组,
+  留到最后套会把此前添加的也套进去(实测 TextHandler 给 `scope=CN/mac http.status=503`,
+  错误写法给 `http.scope=CN/mac`)。空 key 的 `slog.Group` 还必须内联,否则打出 `g..k=1`。
   `TestConsoleHandlerLineFormat` 用**整行精确匹配**钉住格式(只查关键字会放过
-  多一个空格、级别没对齐这类回归),`TestConsoleHandlerKeepsChineseReadable`
-  与 `TestTZLabelAlwaysCarriesOffset` 各守一条。
+  多一个空格、级别没对齐这类回归);`TestConsoleHandlerGroupOnlyQualifiesLaterAttrs`
+  逐字对照 TextHandler 的分组语义——只测不交错的场景等于给了一个虚假的契约合规保证;
+  `TestConsoleHandlerKeepsChineseReadable` 与 `TestTZLabelAlwaysCarriesOffset` 各守一条,
+  后者的时区用例必须放在 `t.Run` 里:`t.Skip` 会终止整个测试函数,写在循环里会让
+  没有系统时区库的环境把「本地时区必须带偏移」那条也一起跳过。
+- 稳态日志体积的估算(**每行约 40 字节、一年约 10MB**)同时出现在两版 README 与
+  `deploy/docker-compose.yml` 的注释里,是一处已知的重复:三个读者群都要就地看到这个数。
+  曾经 README 写 25MB 而 compose 写 50MB,谁都不知道该信哪个。改日志行格式时三处一起改。
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 
