@@ -176,7 +176,9 @@ func (c *Config) Validate() (warnings []string, err error) {
 	// 因为 at != "" 而去解析空串,让进程拒绝启动。
 	//
 	// 这里绝不能像 interval 那样把空值回填成默认时刻:默认值由 Default()
-	// 提供,用户显式写 daily_summary: "" 正是唯一的关闭手段,一回填就再也关不掉。
+	// 提供,用户显式写 daily_summary: "" 正是唯一的关闭手段,一回填就再也关不掉——
+	// 而这是个会往用户手机上推东西的功能。
+	// TestDailySummaryEveryDisablingForm 覆盖五种关闭写法与两种该保持默认的写法。
 	c.Notify.DailySummary = strings.TrimSpace(c.Notify.DailySummary)
 	if c.Notify.DailySummary != "" {
 		if _, err := ParseDailySummary(c.Notify.DailySummary); err != nil {

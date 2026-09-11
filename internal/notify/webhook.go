@@ -17,6 +17,10 @@ const defaultWebhookBody = `{"title":{{json .Title}},"body":{{json .Body}},"url"
 
 // Webhook 是模板化的通用 HTTP 推送渠道。一个实现即可覆盖 Telegram、
 // 飞书、Server 酱、Discord 等——差别只在 URL、请求头和 body 模板。
+//
+// 只做模板渲染,不算签名:飞书/钉钉的「加签」安全模式因此用不了,
+// 两版 README 与示例配置都让用户改用自定义关键词或 IP 白名单。
+// 为一个渠道引入 HMAC 分支,不如把边界说清楚。
 type Webhook struct {
 	name     string
 	url      string
@@ -140,6 +144,15 @@ func (w *Webhook) Send(ctx context.Context, m Message) error {
 	}
 	defer resp.Body.Close()
 
+	// 送达判断只看状态码,这是「有事件未送达就回滚基线」那条约束的已知盲区:
+	// 飞书/企微/钉钉/Server 酱在业务失败时照样返回 200,错误码在响应体里
+	// (钉钉 errcode、飞书 code)。于是这里返回 nil、Multi.Send 记为送达、
+	// 基线照常推进,那批事件永久丢失,日志里却只有「推送成功」。
+	// 四家的示例配置与两版 README 都对用户写明了这一点。
+	//
+	// 刻意不在这里解析各家错误码:那会把渠道特定逻辑塞进通用实现,
+	// 而「一个实现覆盖一切渠道」正是它的价值。要收紧的话,正确做法是加一个
+	// 通用的响应体断言配置项(如「响应必须包含某字符串才算成功」),而不是硬编码渠道。
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook 返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))

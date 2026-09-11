@@ -75,6 +75,10 @@ var capacityRE = regexp.MustCompile(`(?i)\b(\d{1,4})` + unicodeSpaces + `*(GB|TB
 // 但 Zs 里还有 U+2002~U+2008、U+205F 等十来个码位,哪天某个站点换用其中之一,
 // 手抄表就会漏掉,而失败方式是静默的——那个地区一条容量条目都匹配不上、补齐悄悄失效。
 // `\s` 仍要保留:它含 \t\n\f\r,这些不属于 Zs。
+//
+// TestParseOverviewMemoryUnicodeSpaces 与 TestParseOverviewMemoryFrenchUnits 守着这条。
+// 后者的码位必须用 nbsp := "\u00a0" 拼进反引号字符串:反引号是原始字符串,
+// 里面的 \u00a0 只是六个字面字符,那样写测试照样通过却防不住任何东西。
 const unicodeSpaces = `[\s\p{Zs}]`
 
 // htmlTagRE 去掉概述条目里的 <b> 之类标签,上游在芯片名等条目上会加粗。
@@ -99,6 +103,7 @@ var htmlTagRE = regexp.MustCompile(`<[^>]+>`)
 // 页面会让那唯一一条被当成内存返回。实测 watch 详情页正是这样——28 件全部「解析出内存」,
 // 那其实是存储容量。上层的分类闸(scopeHasMemory)只挡得住整类没有内存维度的分类,
 // 挡不住同一分类里个别既无 tsMemorySize 也无 dimensionCapacity 的商品。
+// TestParseOverviewMemoryRequiresCapacityAnchor 守着这条。
 func ParseOverviewMemory(html []byte, knownCapacity string) (string, error) {
 	i := bytes.Index(html, []byte(overviewVar))
 	if i < 0 {

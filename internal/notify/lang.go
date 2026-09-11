@@ -47,7 +47,15 @@ type kindWords struct {
 }
 
 // phrases 是一种语言的全部用户可见文案。标点也随语言走:
-// 中文用全角括号与顿号,英文用半角。只换词不换标点,英文读起来会很别扭。
+// 中文用全角括号与顿号,英文用半角。只换词不换标点,英文读起来会很别扭;
+// 中文这边半角逗号更要命——它与价格里的千分位逗号是同一个字符,
+// 「RMB 600,15.0%」第一眼会被读成一个数。
+//
+// 漏填某个字段不会编译报错,只会得到空串并静默推出残缺文案。
+// TestAllLanguagesDefineEveryPhrase、TestEveryLanguageRendersAllKinds 与
+// TestChinesePhrasesUseFullWidthPunctuation 一起守着这些,新加的文案自动纳入。
+//
+// 注意范围只限推送文案:日志、consoleHeader 这类终端输出与代码注释一律半角。
 type phrases struct {
 	kinds map[state.EventKind]kindWords
 

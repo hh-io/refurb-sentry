@@ -56,6 +56,7 @@ var (
 // 悄悄替换成普通 ASCII,使替换规则退化成「空格换空格」而静默失效。
 // 实测踩过一次——U+00A0 被写成 U+0020,导致西/意/法站的 "A18\u00a0Pro"
 // 被截成 "A18",配了 chips: [M4 Pro] 的规则会莫名漏推。
+// TestNormalizeTitleCoversCodepoints 与 TestParseSpecNormalizesSeparators 防这个回归。
 var dashNormalizer = strings.NewReplacer(
 	"\u2010", "-", // 连字符
 	"\u2011", "-", // 非断行连字符(德国站)

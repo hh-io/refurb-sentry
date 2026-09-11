@@ -15,7 +15,9 @@ type tile struct {
 	ProductDetailsURL string `json:"productDetailsUrl"`
 	Price             struct {
 		PriceCurrency string `json:"priceCurrency"`
-		CurrentPrice  struct {
+		// 刻意不声明 fullMrpPrice:实测各地区该字段恒为空,拿不到官方原价。
+		// 降价只能靠自己的历史快照比对,不要再去找上游要「原价」。
+		CurrentPrice struct {
 			// amount 字段在部分分类(如 watch)里混有 HTML 标签,
 			// raw_amount 才是可解析的纯数字,价格一律以它为准。
 			RawAmount string `json:"raw_amount"`

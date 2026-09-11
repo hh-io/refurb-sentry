@@ -22,6 +22,10 @@ const logTimeLayout = "2006-01-02 15:04:05"
 // 不用 slog 自带的 TextHandler:它固定输出 time=/level=/msg= 这些键名,
 // 实测「本轮无变化」那一行 65 个字符里有 49 个是这类样板。
 // 而这些日志是给人看的——本项目不输出 JSON,没有任何机器在解析它。
+//
+// TestConsoleHandlerLineFormat 用整行精确匹配钉住格式:只查关键字会放过
+// 多一个空格、级别没对齐这类回归。TestConsoleHandlerGroupOnlyQualifiesLaterAttrs
+// 逐字对照 TextHandler 的分组语义——只测不交错的场景等于给了一个虚假的契约合规保证。
 type consoleHandler struct {
 	mu    *sync.Mutex
 	w     io.Writer
@@ -120,7 +124,8 @@ func appendAttr(b *strings.Builder, groups []string, a slog.Attr) {
 }
 
 // quoteIfNeeded 只在值本身会破坏 key=value 断句时才加引号。
-// strconv.Quote 保留可打印的 Unicode,中文不会被转义成 \uXXXX。
+// 必须是 strconv.Quote 而不是 QuoteToASCII:后者会把中文转义成 \uXXXX,
+// 而本项目的日志一律中文,转了就全是天书。
 func quoteIfNeeded(s string) string {
 	if s == "" {
 		return `""`
