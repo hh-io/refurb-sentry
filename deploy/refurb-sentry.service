@@ -34,8 +34,8 @@ RestartSec=30
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
-# 日志走 stdout 交给 journald,轮转由系统的 journald.conf(SystemMaxUse 等)统一管理,
-# 单元本身不必配置。查看:journalctl -u refurb-sentry -f
+# 日志走 stderr 交给 journald(两个流它都收),轮转由系统的 journald.conf
+# (SystemMaxUse 等)统一管理,单元本身不必配置。查看:journalctl -u refurb-sentry -f
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

@@ -97,6 +97,10 @@ func appendAttr(b *strings.Builder, groups []string, a slog.Attr) {
 		}
 		// slog 规定空 key 的 Group 要内联,不加前缀——否则会打出 "g..k=1"。
 		if a.Key != "" {
+			// 这里的 Clip 是防御性的,与 WithGroup 里那处不同(那处不加就是真 bug:
+			// 两个派生 handler 会长期持有并写进同一段底层数组)。递归是深度优先,
+			// 每个兄弟分支用完 groups 才轮到下一个,当前写法不会串键;
+			// 留着是因为一旦有人把遍历改成并发或延迟消费,失败方式是前缀静默出错。
 			groups = append(slices.Clip(groups), a.Key)
 		}
 		for _, s := range sub {

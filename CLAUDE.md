@@ -235,8 +235,14 @@
   后者的时区用例必须放在 `t.Run` 里:`t.Skip` 会终止整个测试函数,写在循环里会让
   没有系统时区库的环境把「本地时区必须带偏移」那条也一起跳过。
 - 稳态日志体积的估算(**每行约 40 字节、一年约 10MB**)同时出现在两版 README、
-  `deploy/docker-compose.yml` 与 `deploy/com.refurb-sentry.plist` 的注释里,是一处已知的重复:各处读者都要就地看到这个数。
+  `deploy/docker-compose.yml` 与 `deploy/com.refurb-sentry.plist` 的注释里,
+  是一处已知的重复:这四处的读者都要就地看到这个数。
   曾经 README 写 25MB 而 compose 写 50MB,谁都不知道该信哪个。改日志行格式时各处一起改。
+- **日志走 stderr,控制台通知与 `-list-dims` 的输出走 stdout**。两版 README 与
+  `deploy/refurb-sentry.service` 的注释都曾写成「日志走 stdout」,三处一起错。
+  三种守护方式都同时收两个流(journald、docker json-file、plist 里 StandardOutPath
+  与 StandardErrorPath 指向同一文件),所以这个错不影响功能,只会误导那些
+  自己重定向输出的人——只写 `>log.txt` 会把全部日志漏掉。
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 
