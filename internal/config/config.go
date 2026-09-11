@@ -68,8 +68,8 @@ type NotifyConfig struct {
 	// DigestThreshold:一轮内匹配事件超过此数量就合并为一条摘要,
 	// 避免 Apple 批量上架时几十条推送刷屏。
 	DigestThreshold int `yaml:"digest_threshold"`
-	// DailySummary 是每日汇总的触发时刻,格式 "HH:MM",按运行机器的本地时区。
-	// 留空(默认)关闭。
+	// DailySummary 是每日汇总的触发时刻,格式 "HH:MM"。
+	// 默认 DefaultDailySummary,显式写成空串即关闭。
 	//
 	// 汇总本身不产生新的抓取,只是把已有状态读一遍。它的用途是把「手机很安静」
 	// 这个二义信号变成单义:条到了说明抓取与推送链路都通,条没到就是系统出了问题。
@@ -77,6 +77,13 @@ type NotifyConfig struct {
 	// 正是它长期为 0,而那类错误在别处不会有任何报错。
 	DailySummary string `yaml:"daily_summary"`
 }
+
+// DefaultDailySummary 是每日汇总的默认时刻。默认开启而不是关闭:
+// 这个工具的常态是配一条窄规则等上几个月,期间「手机安静」既可能是没货,
+// 也可能是进程挂了或规则写错了永远不命中——三者需要的行动完全不同。
+// 首次启动那一份还会立刻告诉用户规则当前命中几件,
+// 把「规则写错」从几个月后的困惑提前到第一分钟。
+const DefaultDailySummary = "09:00"
 
 // ParseDailySummary 把 "HH:MM" 解析成当天零点起的偏移。
 func ParseDailySummary(s string) (time.Duration, error) {
@@ -123,7 +130,10 @@ func Default() Config {
 			DelayMin:   Duration(1 * time.Second),
 			DelayMax:   Duration(3 * time.Second),
 		},
-		Notify: NotifyConfig{Group: "refurb-sentry", DigestThreshold: 5, Lang: string(notify.DefaultLang)},
+		Notify: NotifyConfig{
+			Group: "refurb-sentry", DigestThreshold: 5, Lang: string(notify.DefaultLang),
+			DailySummary: DefaultDailySummary,
+		},
 	}
 }
 
@@ -164,6 +174,9 @@ func (c *Config) Validate() (warnings []string, err error) {
 	// 无条件写回归一化后的值:只在非空分支里写回的话,daily_summary: " "
 	// 会以「校验通过且已关闭」的姿态离开 Validate,却在 NewRunner 里
 	// 因为 at != "" 而去解析空串,让进程拒绝启动。
+	//
+	// 这里绝不能像 interval 那样把空值回填成默认时刻:默认值由 Default()
+	// 提供,用户显式写 daily_summary: "" 正是唯一的关闭手段,一回填就再也关不掉。
 	c.Notify.DailySummary = strings.TrimSpace(c.Notify.DailySummary)
 	if c.Notify.DailySummary != "" {
 		if _, err := ParseDailySummary(c.Notify.DailySummary); err != nil {

@@ -50,7 +50,10 @@ notify:
   lang: zh-CN
   # 一轮内命中事件超过此数量时合并成一条摘要,避免 Apple 批量上架时刷屏。
   digest_threshold: 5
-  # 每日汇总的触发时刻,格式 "HH:MM"。留空(默认)关闭。
+  # 每日汇总的触发时刻,格式 "HH:MM"。默认 09:00,显式写成空串即关闭。
+  #
+  # 注意这一项与 interval 那些不同:空值不会被回填成默认时刻,
+  # 否则就再也关不掉了。配置文件只读挂载时,用 REFURB_DAILY_SUMMARY= 关。
   #
   # 时区取自进程的 TZ 环境变量,没设置时用服务器的系统时区,配置里没有这一项。
   # docker-compose 已默认 TZ: ${TZ:-Asia/Shanghai};裸机/systemd 部署要留意
@@ -71,7 +74,7 @@ notify:
   #
   # 新部署起来后不等到点就立刻发一份(此后每天到点发,当天只发一份),
   # 既确认装好了确实在跑,也让你第一眼看到规则当前命中几件。
-  daily_summary: ""
+  daily_summary: "09:00"
 
 channels:
   - type: bark

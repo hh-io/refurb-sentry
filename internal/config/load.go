@@ -180,12 +180,17 @@ func applyEnvOverrides(c *Config) error {
 		}
 		c.Notify.DigestThreshold = n
 	}
-	if v := os.Getenv("REFURB_DAILY_SUMMARY"); v != "" {
-		// 在这里就校验,是为了让错误信息指对地方:交给 Validate 的话,
-		// 报出来的是「配置文件校验失败: notify.daily_summary=...」,
-		// 而那个键根本不在文件里,运维会照着去翻一份没问题的配置。
-		if _, err := ParseDailySummary(v); err != nil {
-			return fmt.Errorf("环境变量 REFURB_DAILY_SUMMARY=%q 必须是 HH:MM 形式的时刻", v)
+	// 这一项用 LookupEnv 而非 Getenv:日报默认开启,空串是「关闭」这个有意义的取值,
+	// 只有 LookupEnv 能把「显式设成空」与「根本没设」区分开。
+	// 配置文件只读挂载(compose 就是这么挂的)时,这是唯一能关掉它的手段。
+	if v, ok := os.LookupEnv("REFURB_DAILY_SUMMARY"); ok {
+		if v != "" {
+			// 在这里就校验,是为了让错误信息指对地方:交给 Validate 的话,
+			// 报出来的是「配置文件校验失败: notify.daily_summary=...」,
+			// 而那个键根本不在文件里,运维会照着去翻一份没问题的配置。
+			if _, err := ParseDailySummary(v); err != nil {
+				return fmt.Errorf("环境变量 REFURB_DAILY_SUMMARY=%q 必须是 HH:MM 形式的时刻", v)
+			}
 		}
 		c.Notify.DailySummary = v
 	}

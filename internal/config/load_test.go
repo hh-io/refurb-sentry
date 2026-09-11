@@ -355,3 +355,68 @@ func TestInvalidDailySummaryEnvNamesTheVariable(t *testing.T) {
 		t.Errorf("错误信息没指向环境变量,会把人引向配置文件: %v", err)
 	}
 }
+
+// 日报默认开启。不写这一项就该拿到默认时刻——回归时这里最先红:
+// 一旦有人在 Validate 里给它加了「空值回填成默认」的分支,
+// 下面那个显式关闭的用例会跟着红,两条一起守住这对相反的语义。
+func TestDailySummaryDefaultsToEnabled(t *testing.T) {
+	p := writeConfig(t, "regions: [CN]\ncategories: [mac]\n")
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.DailySummary != DefaultDailySummary {
+		t.Errorf("默认应开启并取 %q,实际 %q", DefaultDailySummary, cfg.Notify.DailySummary)
+	}
+
+	// 写了 notify 节点但没提 daily_summary,同样保持默认。
+	p = writeConfig(t, "regions: [CN]\ncategories: [mac]\nnotify:\n  lang: en\n")
+	cfg, _, err = Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.DailySummary != DefaultDailySummary {
+		t.Errorf("只配了 lang 也该保留默认时刻,实际 %q", cfg.Notify.DailySummary)
+	}
+}
+
+// 显式写成空串是唯一的关闭手段。Validate 若把空值回填成默认时刻,
+// 用户就再也关不掉这个功能了——而它是会往手机上推东西的。
+func TestDailySummaryExplicitlyDisabled(t *testing.T) {
+	p := writeConfig(t, "regions: [CN]\ncategories: [mac]\nnotify:\n  daily_summary: \"\"\n")
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.DailySummary != "" {
+		t.Errorf("显式空串应关闭日报,实际被回填成 %q", cfg.Notify.DailySummary)
+	}
+}
+
+// 配置文件常常是只读挂载的(compose 就是这么挂的),那时环境变量是唯一的开关。
+// 用 Getenv 判空会让「设成空串」与「没设」不可区分,于是关不掉。
+func TestDailySummaryEnvCanDisableAndOverride(t *testing.T) {
+	p := writeConfig(t, "regions: [CN]\ncategories: [mac]\nnotify:\n  daily_summary: \"09:00\"\n")
+
+	t.Run("显式设空即关闭", func(t *testing.T) {
+		t.Setenv("REFURB_DAILY_SUMMARY", "")
+		cfg, _, err := Load(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Notify.DailySummary != "" {
+			t.Errorf("REFURB_DAILY_SUMMARY= 应关闭日报,实际 %q", cfg.Notify.DailySummary)
+		}
+	})
+
+	t.Run("给了时刻即覆盖", func(t *testing.T) {
+		t.Setenv("REFURB_DAILY_SUMMARY", "21:30")
+		cfg, _, err := Load(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Notify.DailySummary != "21:30" {
+			t.Errorf("环境变量未覆盖配置文件,实际 %q", cfg.Notify.DailySummary)
+		}
+	})
+}

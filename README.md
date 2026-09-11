@@ -158,7 +158,7 @@ Refurb watch · 6 listings / 2 price drops
 ```
 
 
-### Daily Summary (disabled by default; enable with `notify.daily_summary: "09:00"`)
+### Daily Summary (**on by default**, 09:00 daily; set `notify.daily_summary: ""` to disable)
 
 ```text
 Refurb watch daily · 2026-09-12
@@ -175,6 +175,8 @@ Last summary 09-11 09:00
 > The **rule match count** also exposes broken rules: a mistyped dimension key or a guessed model name (say `refurbClearModel: [watchultra4]` when upstream names it differently) never raises an error — it just shows up as this number sitting at 0 forever.
 >
 > When a region/category has not been fetched successfully for three rounds, its line is marked `(stale, last updated …)`. A scope that fails to fetch is skipped and its products stay in state untouched — without the marker it looks exactly like "healthy, nothing changed", which would put the very ambiguity this feature removes right back at scope granularity.
+>
+> It is **on by default**, because the normal way to use this tool is to set one narrow rule and wait for months: during that wait "my phone is quiet" could mean nothing is in stock, or that the process died, or that a rule is mistyped and will never match — three situations calling for three different responses. Set `notify.daily_summary` to an empty string to turn it off, or use `REFURB_DAILY_SUMMARY=` when the config file is mounted read-only (as the compose file does).
 >
 > It performs no extra fetches, only re-reads existing state, and sends at most one per day. A fresh deployment sends one **immediately, without waiting for the configured time** (install at 08:00 with `daily_summary: "09:00"` and it arrives at once): that doubles as confirmation that the install works, and shows you straight away how many products your rules currently match. It will not send a second one when that time comes around the same day.
 >
