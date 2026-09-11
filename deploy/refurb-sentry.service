@@ -15,6 +15,8 @@ Group=refurb
 WorkingDirectory=/opt/refurb-sentry
 
 # 密钥走环境变量文件,不进配置文件也不进日志。文件权限建议 0600。
+# 用了 notify.daily_summary 而服务器系统时区不是你要的(云主机常是 UTC)时,
+# 在同一个文件里加一行 TZ=Asia/Shanghai 即可——触发时刻按进程的 TZ 走。
 EnvironmentFile=/etc/refurb-sentry/refurb-sentry.env
 ExecStart=/opt/refurb-sentry/refurb-sentry -config /etc/refurb-sentry/config.yaml
 

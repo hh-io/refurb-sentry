@@ -176,7 +176,11 @@ Last summary 09-11 09:00
 >
 > When a region/category has not been fetched successfully for three rounds, its line is marked `(stale, last updated …)`. A scope that fails to fetch is skipped and its products stay in state untouched — without the marker it looks exactly like "healthy, nothing changed", which would put the very ambiguity this feature removes right back at scope granularity.
 >
-> It performs no extra fetches, only re-reads existing state, fires in the machine's local time zone, and sends at most one per day. A fresh deployment sends one **immediately, without waiting for the configured time** (install at 08:00 with `daily_summary: "09:00"` and it arrives at once): that doubles as confirmation that the install works, and shows you straight away how many products your rules currently match. It will not send a second one when that time comes around the same day.
+> It performs no extra fetches, only re-reads existing state, and sends at most one per day. A fresh deployment sends one **immediately, without waiting for the configured time** (install at 08:00 with `daily_summary: "09:00"` and it arrives at once): that doubles as confirmation that the install works, and shows you straight away how many products your rules currently match. It will not send a second one when that time comes around the same day.
+>
+> **The time zone comes from the process's `TZ` environment variable, falling back to the server's system time zone** — there is no config key for it.
+> - **Docker**: `deploy/docker-compose.yml` already defaults to `TZ: ${TZ:-Asia/Shanghai}`; override it with `TZ=Europe/Berlin` in `deploy/.env` (the image ships tzdata, so IANA names work).
+> - **systemd / launchd**: follows the server's system time zone (`/etc/localtime`). **Cloud hosts often default to UTC**, in which case `09:00` fires at 09:00 UTC. Fix it with `timedatectl set-timezone <zone>`, or add `TZ=<zone>` to the unit's `EnvironmentFile`.
 
 ---
 

@@ -24,6 +24,8 @@
   <key>WorkingDirectory</key>
   <string>/usr/local/var/refurb-sentry</string>
 
+  <!-- 用了 notify.daily_summary 且想固定时区时,在这里加一项 TZ;
+       不加则跟随系统时区(macOS 桌面机通常就是本地时区,一般不必加)。 -->
   <key>EnvironmentVariables</key>
   <dict>
     <key>BARK_KEY</key>

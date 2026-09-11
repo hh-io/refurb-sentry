@@ -15,7 +15,8 @@ services:
     restart: unless-stopped
 
     environment:
-      # 日志时间戳用的时区。镜像里装了 tzdata,填 IANA 名称即可。
+      # 日志时间戳与 notify.daily_summary 的触发时刻都按这个时区。
+      # 镜像里装了 tzdata,填 IANA 名称即可。
       TZ: ${TZ:-Asia/Shanghai}
       # 配置里 ${VAR} 引用到的密钥都要在这里传进去,值写在同目录的 .env 里。
       # 用不到 bark 就删掉这行,换成你实际启用的渠道所需的变量。

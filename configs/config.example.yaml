@@ -12,6 +12,12 @@ regions:
 categories:
   - mac
 
+# 每天一条汇总(各分类在架多少、增减多少、有几件命中规则),用来确认
+# 「系统还活着、规则还在命中」——没有它的话,进程挂了和最近没新品一样安静。
+# 默认关闭,去掉下面两行的注释即可开启;时区取自 TZ 环境变量,不在配置里。
+# notify:
+#   daily_summary: "09:00"
+
 channels:
   - type: bark
     device_key: ${BARK_KEY}
