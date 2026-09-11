@@ -105,7 +105,8 @@ func run(configPath string, once, dryRun, listDims, skeleton bool) error {
 
 	runner, err := app.NewRunner(app.Options{
 		Config: cfg, Client: client, Rules: rules,
-		Notifier: notify.NewMulti(notifiers, log), State: st, Logger: log, DryRun: dryRun,
+		Notifier: notify.NewMulti(notifiers, log), State: st, Logger: log,
+		Version: version, DryRun: dryRun,
 	})
 	if err != nil {
 		return err

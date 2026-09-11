@@ -53,6 +53,10 @@ type Runner struct {
 	summaryAttempts int
 	// summaryFor 是 summaryAttempts 正在计的那次汇总的触发时刻,用于跨天归零。
 	summaryFor time.Time
+
+	// version 打在启动那一行。升级完最先要确认的就是「现在跑的是哪个版本」,
+	// 而容器里只能靠 exec 进去执行 -version 才问得出来。
+	version string
 }
 
 // staleSince 把「是否陈旧」与「最后更新时刻」合成日报用的一个字段:
@@ -86,6 +90,8 @@ type Options struct {
 	Notifier *notify.Multi
 	State    *state.State
 	Logger   *slog.Logger
+	// Version 由 main 注入,留空按 dev 处理(与 -ldflags 未注入时的默认值一致)。
+	Version string
 	// DryRun 时既不推送也不落盘。写状态同样是副作用:
 	// 一次 dry-run 若恰好撞上真实降价,该降价会被吸收进基线,
 	// 正式进程从此再也不会推送它。
@@ -114,6 +120,10 @@ func NewRunner(opt Options) (*Runner, error) {
 		render: notify.NewRenderer(lang, cfg.Notify.Group),
 		st:     opt.State, scopes: scopes, log: opt.Logger, dryRun: opt.DryRun,
 		memCache: apple.NewMemoryCache(),
+		version:  opt.Version,
+	}
+	if r.version == "" {
+		r.version = "dev"
 	}
 	if at := cfg.Notify.DailySummary; at != "" {
 		// 同样已在 Validate 阶段校验过格式。
@@ -148,7 +158,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	if r.summaryAt != nil {
 		summary = r.cfg.Notify.DailySummary
 	}
-	r.log.Info("开始监控",
+	r.log.Info("开始监控", "version", r.version,
 		"scopes", len(r.scopes), "interval", r.cfg.Interval.Std().String(),
 		"channels", r.notif.Names(), "state", r.cfg.StatePath,
 		"tz", tzLabel(time.Now()), "daily_summary", summary)
