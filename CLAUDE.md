@@ -168,4 +168,3 @@ darwin/linux 的 amd64、arm64、armv7 归档并发布 release。版本号通过
 
 `assets/icon.png`(推送通知图标)采用 macOSicons 上的 Apple Store 图标
 (https://macosicons.com/?icon=ijSPtRVRMC),规格为原始 1024x1024 PNG。
-`assets/make-icon.py` 为此前纯代码生成的自制图标脚本,保留供参考。
