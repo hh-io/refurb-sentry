@@ -49,10 +49,12 @@ func newTestRunner(t *testing.T, n notify.Notifier, st *state.State) *Runner {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dir := t.TempDir()
 	return &Runner{
 		cfg: &config.Config{
-			StatePath: filepath.Join(t.TempDir(), "state.json"),
+			StatePath: filepath.Join(dir, "state.json"),
 			Notify:    config.NotifyConfig{DigestThreshold: 100},
+			History:   config.HistoryConfig{Path: filepath.Join(dir, "history.jsonl")},
 		},
 		rules:  rules,
 		notif:  notify.NewMulti([]notify.Notifier{n}, log),

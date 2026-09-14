@@ -251,13 +251,26 @@ categories: [mac]
 	}
 }
 
-// 开了 fill_missing_memory 却没有规则约束内存时,补齐会被整个跳过。
+// 关闭档案、开了 fill_missing_memory 却没有规则约束内存时,补齐会被整个跳过。
 // 这是对的,但必须说出来——否则用户会以为它在生效,等到「怎么还是漏机型」时无从下手。
+// 档案开启时补齐为档案服务,不会跳过,也就不该警告。
 func TestFillMissingMemoryWithoutMemoryRuleWarns(t *testing.T) {
-	const body = "regions: [CN]\ncategories: [mac]\n" +
+	const archived = "regions: [CN]\ncategories: [mac]\n" +
 		"http:\n  fill_missing_memory: true\n" +
 		"rules:\n  - name: 只按机型\n    dimensions:\n      refurbClearModel: [macbookpro]\n"
-	_, warnings, err := Load(writeConfig(t, body))
+	_, warnings, err := Load(writeConfig(t, archived))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasWarning(warnings, "fill_missing_memory") {
+		t.Errorf("档案开启时补齐照常生效,不该警告,实际警告:%v", warnings)
+	}
+
+	const body = "regions: [CN]\ncategories: [mac]\n" +
+		"history:\n  enabled: false\n" +
+		"http:\n  fill_missing_memory: true\n" +
+		"rules:\n  - name: 只按机型\n    dimensions:\n      refurbClearModel: [macbookpro]\n"
+	_, warnings, err = Load(writeConfig(t, body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +287,59 @@ func TestFillMissingMemoryWithoutMemoryRuleWarns(t *testing.T) {
 	}
 	if hasWarning(warnings, "fill_missing_memory") {
 		t.Errorf("有规则按内存过滤时不该警告,实际警告:%v", warnings)
+	}
+}
+
+// 档案默认开启,且默认与状态文件同目录:systemd 单元的工作目录只读,
+// 固定写相对路径 data/ 会让档案每轮写失败。
+func TestHistoryDefaults(t *testing.T) {
+	cfg, warnings, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\nstate_path: /var/lib/refurb-sentry/state.json\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.History.IsEnabled() {
+		t.Error("历史档案应默认开启")
+	}
+	if cfg.History.Path != "/var/lib/refurb-sentry/history.jsonl" {
+		t.Errorf("档案默认应与状态文件同目录,实际 %q", cfg.History.Path)
+	}
+	if hasWarning(warnings, "history") {
+		t.Errorf("档案的默认配置不应产生警告,实际 %v", warnings)
+	}
+
+	// `enabled:` 留空是 null,应与没写一样保持默认开启。
+	cfg, _, err = Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\nhistory:\n  enabled:\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.History.IsEnabled() {
+		t.Error("enabled 留空应保持默认开启")
+	}
+}
+
+func TestHistoryCategories(t *testing.T) {
+	cfg, _, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\n"+
+		"history:\n  categories: [MAC, iPad, ipad, watch]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 已在 categories 里的 mac 去掉,大小写归一、重复去掉,否则同一分类会被抓两遍。
+	if got := strings.Join(cfg.History.Categories, ","); got != "ipad,watch" {
+		t.Errorf("history.categories 应归一化为 ipad,watch,实际 %q", got)
+	}
+
+	if _, _, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\nhistory:\n  categories: [banana]\n")); err == nil ||
+		!strings.Contains(err.Error(), "history.categories") {
+		t.Errorf("未知分类应报错并指明 history.categories,实际 %v", err)
+	}
+
+	_, warnings, err := Load(writeConfig(t, "regions: [CN]\ncategories: [mac]\n"+
+		"history:\n  enabled: false\n  categories: [ipad]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasWarning(warnings, "history.categories") {
+		t.Errorf("关闭档案却列了只归档分类时应警告,实际 %v", warnings)
 	}
 }
 

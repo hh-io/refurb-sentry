@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,9 +40,26 @@ type Config struct {
 
 	HTTP     HTTPConfig      `yaml:"http"`
 	Notify   NotifyConfig    `yaml:"notify"`
+	History  HistoryConfig   `yaml:"history"`
 	Channels []ChannelConfig `yaml:"channels"`
 	Rules    []filter.Rule   `yaml:"rules"`
 }
+
+// HistoryConfig 控制历史档案:每次上架、调价、下架各追加一行,供 -history 查询。
+type HistoryConfig struct {
+	// Enabled 默认开启(nil 即开启)。档案无法事后补录,等到想查某个配置以前卖多少钱时
+	// 才去打开,之前的几个月就已经丢了;而代价只是数据目录下多一个几 MB 的文件。
+	// 用 *bool 而不是沿用 daily_summary「空串即关闭」的约定:那种约定需要一整套
+	// null / 空白 / 环境变量的特判才守得住,开关就该长得像开关。
+	Enabled *bool `yaml:"enabled"`
+	// Path 留空时放在 state_path 的同一目录下,见 Validate。
+	Path string `yaml:"path"`
+	// Categories 是只归档、不推送的额外分类。它们照常抓取、建立基线、写入档案,
+	// 但产生的事件绝不进入推送与日报。已在顶层 categories 里的分类无需重复列出。
+	Categories []string `yaml:"categories"`
+}
+
+func (h HistoryConfig) IsEnabled() bool { return h.Enabled == nil || *h.Enabled }
 
 type HTTPConfig struct {
 	// Proxy 支持 http/https/socks5,用途是修正出口地区而非隐藏身份。
@@ -213,6 +231,22 @@ func (c *Config) Validate() (warnings []string, err error) {
 		c.Categories[i] = strings.ToLower(strings.TrimSpace(cat))
 	}
 
+	// 默认跟状态文件放在同一目录,而不是相对工作目录的 data/:systemd 单元的工作目录
+	// 是只读的 /opt/refurb-sentry,状态写在 StateDirectory 里,固定相对路径会让档案
+	// 每一轮都写失败;compose 挂的卷也只覆盖状态所在的那个目录。
+	if c.History.Path == "" {
+		c.History.Path = filepath.Join(filepath.Dir(c.StatePath), "history.jsonl")
+	}
+	extra, err := c.archiveOnlyCategories()
+	if err != nil {
+		return nil, err
+	}
+	c.History.Categories = extra
+	if !c.History.IsEnabled() && len(extra) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"history.enabled 为 false,history.categories 中的 %v 不会被抓取", extra))
+	}
+
 	for i, ch := range c.Channels {
 		if !ch.IsEnabled() {
 			continue
@@ -238,10 +272,34 @@ func (c *Config) Validate() (warnings []string, err error) {
 	}
 	// 开了开关却没有规则用到该维度时,补齐逻辑会整个跳过——这是对的(补了也改变不了
 	// 推送结果),但沉默会让人以为在生效,等到「怎么还是漏机型」时无从下手。
-	if c.HTTP.FillMissingMemory && !filter.RulesUseDimension(c.Rules, apple.MemoryDimension) {
+	// 档案开启时补齐为档案服务,不再以规则为前提,见 Runner.fillMissingMemory。
+	if c.HTTP.FillMissingMemory && !c.History.IsEnabled() &&
+		!filter.RulesUseDimension(c.Rules, apple.MemoryDimension) {
 		warnings = append(warnings, fmt.Sprintf(
 			"fill_missing_memory 已开启,但没有任何规则约束 %s,补齐不会改变推送结果,已跳过",
 			apple.MemoryDimension))
 	}
 	return warnings, nil
+}
+
+// archiveOnlyCategories 校验并归一化 history.categories,去掉已在顶层 categories 里的项。
+// 重复列出是无害的写法(「这些我都要归档」),不值得报错或告警。
+func (c *Config) archiveOnlyCategories() ([]string, error) {
+	pushed := make(map[string]bool, len(c.Categories))
+	for _, cat := range c.Categories {
+		pushed[cat] = true
+	}
+	var out []string
+	for _, cat := range c.History.Categories {
+		if !apple.ValidCategory(cat) {
+			return nil, fmt.Errorf("history.categories 中有未知分类 %q,可选:%v", cat, apple.Categories)
+		}
+		cat = strings.ToLower(strings.TrimSpace(cat))
+		if pushed[cat] {
+			continue
+		}
+		pushed[cat] = true
+		out = append(out, cat)
+	}
+	return out, nil
 }

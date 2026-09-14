@@ -12,6 +12,7 @@ import (
 	"github.com/hh-io/refurb-sentry/internal/apple"
 	"github.com/hh-io/refurb-sentry/internal/config"
 	"github.com/hh-io/refurb-sentry/internal/filter"
+	"github.com/hh-io/refurb-sentry/internal/history"
 	"github.com/hh-io/refurb-sentry/internal/notify"
 	"github.com/hh-io/refurb-sentry/internal/state"
 )
@@ -19,6 +20,8 @@ import (
 type scope struct {
 	region   apple.Region
 	category string
+	// archiveOnly 表示该分类来自 history.categories:照常抓取、建基线、写档案,但绝不推送。
+	archiveOnly bool
 }
 
 func (s scope) String() string { return s.region.Code + "/" + s.category }
@@ -100,7 +103,11 @@ type Options struct {
 
 func NewRunner(opt Options) (*Runner, error) {
 	cfg := opt.Config
-	scopes := make([]scope, 0, len(cfg.Regions)*len(cfg.Categories))
+	var archived []string
+	if cfg.History.IsEnabled() {
+		archived = cfg.History.Categories
+	}
+	scopes := make([]scope, 0, len(cfg.Regions)*(len(cfg.Categories)+len(archived)))
 	for _, code := range cfg.Regions {
 		r, err := apple.LookupRegion(code)
 		if err != nil {
@@ -108,6 +115,10 @@ func NewRunner(opt Options) (*Runner, error) {
 		}
 		for _, c := range cfg.Categories {
 			scopes = append(scopes, scope{region: r, category: c})
+		}
+		// Validate 已去掉与 categories 重复的项,同一分类不会被抓两遍。
+		for _, c := range archived {
+			scopes = append(scopes, scope{region: r, category: c, archiveOnly: true})
 		}
 	}
 	// 配置在 Validate 阶段已经归一化过语言,这里不会再失败。
@@ -158,10 +169,14 @@ func (r *Runner) Run(ctx context.Context) error {
 	if r.summaryAt != nil {
 		summary = r.cfg.Notify.DailySummary
 	}
+	archive := "关闭"
+	if r.cfg.History.IsEnabled() {
+		archive = r.cfg.History.Path
+	}
 	r.log.Info("开始监控", "version", r.version,
 		"scopes", len(r.scopes), "interval", r.cfg.Interval.Std().String(),
 		"channels", r.notif.Names(), "state", r.cfg.StatePath,
-		"tz", tzLabel(time.Now()), "daily_summary", summary)
+		"tz", tzLabel(time.Now()), "daily_summary", summary, "history", archive)
 
 	if err := r.RunOnce(ctx); err != nil {
 		// 首轮尚未结束就收到退出信号时,与 ticker 分支保持一致:
@@ -289,6 +304,10 @@ func (r *Runner) reconcile(ctx context.Context, results []fetched, now time.Time
 			"scopes", baselined, "products", baselinedItems)
 	}
 
+	// 只归档的分类必须在规则之前挡掉:没写 categories 的规则、以及空规则集(放行全部)
+	// 都会命中任何分类,交给规则去挡等于把用户没打算监控的分类推到手机上。
+	events = pushable(events, r.archiveOnlyCategories())
+
 	// 计数放在 Apply 之后、推送之前:它与基线同属一份状态,
 	// 推送全败回滚时一并退回,下一轮重新产生的同一批事件才不会被计两次。
 	r.st.CountEvents(events)
@@ -302,6 +321,7 @@ func (r *Runner) reconcile(ctx context.Context, results []fetched, now time.Time
 			r.log.Error("连续多轮未能送达,判定为永久性失败,放弃这批通知并推进基线",
 				"rounds", r.rollbacks, "dropped", len(events))
 			r.rollbacks = 0
+			r.recordHistory(snapshot, now)
 			return r.save()
 		}
 		// 有事件一条渠道都没送出去(例如 Bark 宕机)。回滚到本轮开始前的基线,
@@ -313,7 +333,67 @@ func (r *Runner) reconcile(ctx context.Context, results []fetched, now time.Time
 	}
 	r.rollbacks = 0
 	r.st.CountPushed(matched)
+	r.recordHistory(snapshot, now)
 	return r.save()
+}
+
+// archiveOnlyCategories 返回只归档、不推送的分类集合。
+func (r *Runner) archiveOnlyCategories() map[string]bool {
+	set := map[string]bool{}
+	for _, sc := range r.scopes {
+		if sc.archiveOnly {
+			set[sc.category] = true
+		}
+	}
+	return set
+}
+
+// pushable 去掉只归档分类产生的事件。
+func pushable(events []state.Event, archiveOnly map[string]bool) []state.Event {
+	if len(archiveOnly) == 0 {
+		return events
+	}
+	out := events[:0:0]
+	for _, ev := range events {
+		if !archiveOnly[ev.Product.Category] {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// recordHistory 把本轮的变动写进历史档案。
+//
+// 只在基线确定提交的两条路径上调用(送达成功、放弃重试强制推进),回滚那一轮不写:
+// 下一轮会重新产生同一批变动,写了就会重复。顺序上刻意放在 save 之前——
+// 写完档案、落状态之前被 kill,下一轮会再写一遍(history.Fold 会合并);
+// 反过来则是永久丢一批记录。重复优于丢失,与 dispatch 的取舍一致。
+//
+// 写入失败只记 ERROR,不回滚也不让本轮失败:档案是派生数据,
+// 为它回滚会让已经送达的通知下一轮重推一遍,理由与日报送达失败不回滚相同。
+func (r *Runner) recordHistory(before *state.State, now time.Time) {
+	if !r.cfg.History.IsEnabled() || r.dryRun {
+		return
+	}
+	path := r.cfg.History.Path
+	var recs []history.Record
+	seed, err := history.NeedsSeed(path)
+	if err != nil {
+		r.log.Error("历史档案不可用,本轮变动未归档", "err", err)
+		return
+	}
+	if seed {
+		recs = history.Seed(before, now)
+	}
+	recs = append(recs, history.Diff(before, r.st, now)...)
+	if len(recs) == 0 {
+		return
+	}
+	if err := history.Append(path, recs); err != nil {
+		r.log.Error("写入历史档案失败,本轮变动未归档", "records", len(recs), "err", err)
+		return
+	}
+	r.log.Debug("已写入历史档案", "records", len(recs), "seeded", seed)
 }
 
 // sameDay 判断两个时刻是否落在 loc 时区的同一天。
@@ -373,6 +453,10 @@ func (r *Runner) maybeDailySummary(ctx context.Context, now time.Time) error {
 
 	scopes := make([]notify.SummaryScope, 0, len(r.scopes))
 	for _, sc := range r.scopes {
+		// 日报的数字是推送链路的活性证明,只归档的分类不产生推送,混进来只会稀释它。
+		if sc.archiveOnly {
+			continue
+		}
 		region, category := sc.region.Code, sc.category
 		entries := r.st.ScopeEntries(region, category)
 		matches := 0
@@ -537,7 +621,14 @@ func (r *Runner) save() error {
 // 「现在有哪些取值」与「芯片解析还正常吗」,骨架对这两件事都是噪音,
 // 而且每个 scope 十几行,地区一多就把维度表淹没了。骨架只在初次写规则时有用。
 func (r *Runner) ListDimensions(ctx context.Context, skeleton bool, out func(string)) error {
-	for i, sc := range r.scopes {
+	var scopes []scope
+	for _, sc := range r.scopes {
+		// 规则管不到只归档的分类,列出它们的维度只会误导人去为它写规则。
+		if !sc.archiveOnly {
+			scopes = append(scopes, sc)
+		}
+	}
+	for i, sc := range scopes {
 		if err := r.pause(ctx, i); err != nil {
 			return err
 		}
@@ -718,12 +809,18 @@ func sortedKeys[V any](m map[string]V) []string {
 //     把一次抖动记成「查过没查到」,会让这台机器在整个进程生命周期里再也不被补齐,
 //     按内存过滤的规则从此静默漏掉它——正是本功能要消除的那个问题。
 //   - 只有 ctx 取消才向上返回错误,与抓取列表页时的处理保持一致。
+//
+// 历史档案开启时,补齐同时为档案服务:「查某个 32GB 配置以前卖多少钱」同样会因为
+// 内存缺失而静默漏掉整档机型。此时不再以规则为前提,缺内存且有容量锚点的商品都补。
+// 代价是首轮多几十个详情页请求(CN mac 实测约 45 个),之后按货号命中缓存,
+// 只有新上架的商品才会再发请求。
 func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Grid) error {
 	if !r.cfg.HTTP.FillMissingMemory {
 		return nil
 	}
-	// 没有任何规则按内存过滤时,补齐不会改变任何推送结果,这些请求全是白发的。
-	if !r.rules.UsesDimension(apple.MemoryDimension) {
+	forHistory := r.cfg.History.IsEnabled()
+	// 既不归档、也没有任何规则按内存过滤时,补齐不会改变任何结果,这些请求全是白发的。
+	if !forHistory && !r.rules.UsesDimension(apple.MemoryDimension) {
 		return nil
 	}
 	// 只在这个分类本来就有内存维度、仅个别商品缺失时才补。
@@ -743,8 +840,8 @@ func (r *Runner) fillMissingMemory(ctx context.Context, sc scope, grid *apple.Gr
 		}
 		// 机型、芯片、容量、价格列表页都已给全,凭它们就能判定不可能命中的商品,
 		// 再去看详情页也是白看:内存是它唯一还没定的条件,而其余条件已经否决了它。
-		// 实测这一步把 CN mac 的补齐请求从 45 个降到 20 个。
-		if !r.rules.MayMatchWithout(*p, filter.ParseSpec(p.Title), apple.MemoryDimension) {
+		// 实测这一步把 CN mac 的补齐请求从 45 个降到 20 个。档案要的是全部商品,开启时不做这层裁剪。
+		if !forHistory && !r.rules.MayMatchWithout(*p, filter.ParseSpec(p.Title), apple.MemoryDimension) {
 			skipped++
 			continue
 		}

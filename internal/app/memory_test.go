@@ -38,8 +38,9 @@ func detailServer(t *testing.T, hits *atomic.Int64) *httptest.Server {
 	return srv
 }
 
-// newMemoryRunner 的规则集刻意按内存过滤:补齐只为按内存过滤的规则服务,
-// 空规则集会让整个补齐被跳过(见 TestFillMissingMemorySkipsWhenNoRuleUsesMemory)。
+// newMemoryRunner 的规则集刻意按内存过滤,且关闭历史档案:档案关闭时补齐只为按内存过滤的
+// 规则服务,空规则集会让整个补齐被跳过(见 TestFillMissingMemorySkipsWhenNoRuleUsesMemory)。
+// 档案开启时的行为见 TestFillMissingMemoryForHistoryIgnoresRules。
 func newMemoryRunner(t *testing.T, fill bool) *Runner {
 	t.Helper()
 	rules, err := filter.New([]filter.Rule{{
@@ -59,6 +60,7 @@ func newMemoryRunner(t *testing.T, fill bool) *Runner {
 			StatePath: filepath.Join(t.TempDir(), "state.json"),
 			HTTP:      config.HTTPConfig{FillMissingMemory: fill},
 			Notify:    config.NotifyConfig{DigestThreshold: 100},
+			History:   config.HistoryConfig{Enabled: new(bool)},
 		},
 		client:   client,
 		rules:    rules,
@@ -262,6 +264,41 @@ func TestFillMissingMemorySkipsProductsRuledOutByGrid(t *testing.T) {
 	}
 	if hits.Load() != 1 {
 		t.Errorf("只该为可能命中的那一件发请求,实际 %d 个", hits.Load())
+	}
+}
+
+// 档案开启时补齐为档案服务:规则既不按内存过滤、也否决了这件商品,照样要补——
+// 否则 -history 按内存查时会静默漏掉整档机型,与补齐要解决的是同一个问题。
+// 缺容量锚点的仍然跳过,那个请求注定失败,与为谁补无关。
+func TestFillMissingMemoryForHistoryIgnoresRules(t *testing.T) {
+	var hits atomic.Int64
+	srv := detailServer(t, &hits)
+	r := newMemoryRunner(t, true)
+	r.cfg.History.Enabled = nil
+	rules, err := filter.New([]filter.Rule{{
+		Name:       "只按机型",
+		Dimensions: map[string][]string{"refurbClearModel": {"imac"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rules = rules
+
+	grid := &apple.Grid{Products: []apple.Product{
+		{PartNumber: "SEED", URL: srv.URL + "/seed", Dimensions: map[string]string{"tsMemorySize": "24gb"}},
+		{PartNumber: "PRO", URL: srv.URL + "/pro", Dimensions: map[string]string{
+			"refurbClearModel": "macbookpro", "dimensionCapacity": "2tb"}},
+		{PartNumber: "NOCAP", URL: srv.URL + "/nocap", Dimensions: map[string]string{
+			"refurbClearModel": "display"}},
+	}}
+	if err := r.fillMissingMemory(context.Background(), macScope(t), grid); err != nil {
+		t.Fatal(err)
+	}
+	if got := grid.Products[1].Dimensions["tsMemorySize"]; got != "36gb" {
+		t.Errorf("档案开启时,规则否决的商品也应补齐,实际 %q", got)
+	}
+	if hits.Load() != 1 {
+		t.Errorf("只该为有容量锚点的那一件发请求,实际 %d 个", hits.Load())
 	}
 }
 
