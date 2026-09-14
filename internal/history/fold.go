@@ -29,6 +29,9 @@ type Sale struct {
 	ListedApprox bool
 	// DelistedAt 为零值表示截至档案最后一行它仍在架。
 	DelistedAt time.Time
+	// DelistedApprox 表示真实下架时刻只知道不晚于 DelistedAt:这条下架是对账补出来的,
+	// 商品在程序没看着的时候(档案关闭期间、状态文件重建前)就已经没了。
+	DelistedApprox bool
 	// Prices 按时间排列,第一项是上架价,至少有一项。
 	Prices []PricePoint
 }
@@ -50,7 +53,8 @@ func (s Sale) Product() apple.Product {
 // 档案允许出现重复:写完档案、落状态之前进程被杀,下一轮会把同一批变动再写一遍
 // (重复优于丢失,见 app 包的 recordHistory);状态文件被删掉重建时,
 // 在架商品会再记一遍 baseline。因此同一件商品在架期间再出现 listed/baseline,
-// 一律并入当前这次售卖,而不是凭空多出一次。
+// 一律并入当前这次售卖,而不是凭空多出一次;已经下架的商品紧接着再来一条下架,
+// 同样是那次重写,直接丢弃——否则它会被当成一次缺了上架记录的新售卖。
 func Fold(recs []Record) []Sale {
 	sorted := make([]Record, len(recs))
 	copy(sorted, recs)
@@ -58,9 +62,14 @@ func Fold(recs []Record) []Sale {
 
 	var sales []*Sale
 	open := map[string]*Sale{}
+	lastKind := map[string]Kind{}
 	for _, r := range sorted {
 		k := r.Key()
 		s := open[k]
+		if s == nil && r.Kind == KindDelisted && lastKind[k] == KindDelisted {
+			continue
+		}
+		lastKind[k] = r.Kind
 		if s == nil {
 			s = startSale(r)
 			sales = append(sales, s)
@@ -69,6 +78,7 @@ func Fold(recs []Record) []Sale {
 		s.merge(r)
 		if r.Kind == KindDelisted {
 			s.DelistedAt = r.Time
+			s.DelistedApprox = r.Approx
 			delete(open, k)
 		}
 	}

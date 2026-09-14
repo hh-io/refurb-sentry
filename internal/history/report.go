@@ -163,22 +163,31 @@ func saleLine(s Sale, now time.Time) string {
 	if s.ListedApprox {
 		listed = "≤" + s.ListedAt.In(now.Location()).Format(layout)
 	}
-	end, delisted := now, "在售            "
+	end, delisted := now, " 在售            "
 	if !s.DelistedAt.IsZero() {
 		end = s.DelistedAt
-		delisted = s.DelistedAt.In(now.Location()).Format(layout)
+		delisted = " " + s.DelistedAt.In(now.Location()).Format(layout)
+		if s.DelistedApprox {
+			delisted = "≤" + s.DelistedAt.In(now.Location()).Format(layout)
+		}
 	}
 	dur := humanDuration(end.Sub(s.ListedAt))
-	// 上架时刻是近似值时,它只会比真实值晚,在架时长因此只会被低估。
-	if s.ListedApprox {
+	// 上架时刻是近似值时它只会比真实值晚,在架时长因此只会被低估;下架时刻是近似值时
+	// 则只会被高估。两头都近似时连方向都说不准,不给数字。
+	switch {
+	case s.ListedApprox && s.DelistedApprox:
+		dur = "未知"
+	case s.ListedApprox:
 		dur = "≥" + dur
+	case s.DelistedApprox:
+		dur = "≤" + dur
 	}
 
 	prices := make([]string, len(s.Prices))
 	for i, p := range s.Prices {
 		prices[i] = apple.FormatPrice(p.Cents, s.Currency)
 	}
-	return fmt.Sprintf("%s → %s  在架 %-10s %s  %s",
+	return fmt.Sprintf("%s →%s  在架 %-10s %s  %s",
 		listed, delisted, dur, strings.Join(prices, " → "), s.PartNumber)
 }
 

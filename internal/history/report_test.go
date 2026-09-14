@@ -111,3 +111,16 @@ func TestReportCountsUnknownMemory(t *testing.T) {
 		t.Errorf("应提示 1 次售卖因缺内存无法判断:\n%s", out)
 	}
 }
+
+func TestReportApproximateDelisting(t *testing.T) {
+	s := sale("P1", proNano, 1, nil, t0, t0.Add(3*time.Hour))
+	s.DelistedApprox = true
+	out := report([]Sale{s}, Filter{}, t0.Add(100*time.Hour))
+	if !strings.Contains(out, "→≤") || !strings.Contains(out, "在架 ≤3小时0分") {
+		t.Errorf("近似下架应标 ≤,在架时长为上限:\n%s", out)
+	}
+	s.ListedApprox = true
+	if out := report([]Sale{s}, Filter{}, t0); !strings.Contains(out, "在架 未知") {
+		t.Errorf("两头都近似时在架时长应为未知:\n%s", out)
+	}
+}

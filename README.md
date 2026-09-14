@@ -444,7 +444,9 @@ are rejected otherwise; separate multiple values with commas, which are ORed:
   dimension does not match, chip and core counts are parsed from the title.
 - Results are grouped by configuration, most recent activity first, one line per listing.
   `≤` means the product was already in stock when the archive started, so its real
-  listing time is only known to be no later than that, and time in stock is shown as `≥`.
+  listing time is only known to be no later than that, and time in stock is shown as `≥`;
+  a `≤` before the delisting time works the same way, see
+  [Record Format & Reliability](#3-record-format--reliability).
 - When querying by memory, records lacking the memory dimension do not silently vanish:
   a closing line reports how many sales could not be judged for that reason.
 - Reads the local file only: no network, no notification channel needed.
@@ -492,6 +494,11 @@ archive started), `listed`, `price` or `delisted`:
   twice. `-dry-run` writes nothing.
 - When the archive is first enabled, products already in the state file are recorded as
   `baseline`, using the state file's first-seen time, so none are missing.
+- **Reconciled against the state file once per start**: products still on sale in the
+  archive but gone from the state file (delisted while the archive was off, or before the
+  state file was deleted and rebuilt) get a delisting recorded, marked approximate. Queries
+  show it as `≤`, with time in stock shown as an upper bound or as unknown. Without this
+  they would stay "on sale" forever.
 - Appended and fsynced; a torn line left by a power cut is skipped with a warning on read
   and does not affect other records.
 - A write failure (e.g. a full disk) is logged at ERROR and affects neither notifications

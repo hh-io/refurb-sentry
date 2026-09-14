@@ -74,6 +74,8 @@
    记录从 Apply 前后的状态推导(`history.Diff`),**不要改成复用 `state.Event`**——
    冷启动与涨价恰好不产生事件,而档案需要这两类。同理,`history.categories` 的
    只归档分类必须在规则匹配**之前**挡掉:空规则集与没写 `categories` 的规则会命中任何分类。
+   Diff 看不到程序没看着时发生的下架,所以每个范围每次启动后首次提交要用 `history.CloseStale`
+   与状态库对账,且**写入成功后才标记已对账**;`Fold` 对同一商品连续两条下架只认第一条。
    见 `internal/app/runner.go` 的 `recordHistory` 与 `internal/history/record.go`。
 
 推导过程分别在 `internal/state/state.go`、`store.go` 与 `internal/app/runner.go` 的注释里。

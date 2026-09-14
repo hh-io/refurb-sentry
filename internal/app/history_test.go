@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,5 +147,48 @@ func TestArchiveOnlyScopeIsNeverPushed(t *testing.T) {
 	}
 	if countKind(readHistory(t, r), "P2", history.KindListed) != 1 {
 		t.Fatal("只归档的分类的上架应写进档案")
+	}
+}
+
+// 档案里仍在架、状态库里却没有的商品(档案关闭期间或状态重建前就下架了)
+// 要在本进程第一次提交时补记下架;每次启动只对一次账,不能每轮都补。
+func TestHistoryClosesStaleSalesOnce(t *testing.T) {
+	st := state.New()
+	st.Apply("CN", "mac", []apple.Product{prod("A/A", 100000)}, time.Now())
+	r := newTestRunner(t, &stubNotifier{}, st)
+
+	old := time.Now().Add(-72 * time.Hour)
+	if err := history.Append(r.cfg.History.Path, []history.Record{
+		{Time: old, Kind: history.KindListed, Region: "CN", Category: "mac", PartNumber: "A/A", PriceCents: 100000, FirstSeen: old},
+		{Time: old, Kind: history.KindListed, Region: "CN", Category: "mac", PartNumber: "GONE/A", PriceCents: 50000, FirstSeen: old},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := r.settle(context.Background(), cnMac(t, []apple.Product{prod("A/A", 100000)}), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recs := readHistory(t, r)
+	if n := countKind(recs, "GONE/A", history.KindDelisted); n != 1 {
+		t.Fatalf("GONE/A 应恰好补记 1 条下架,实际 %d", n)
+	}
+	if countKind(recs, "A/A", history.KindDelisted) != 0 {
+		t.Fatal("仍在状态库里的 A/A 不应被关闭")
+	}
+}
+
+// 只归档的分类在某地区不存在时,报错要指向 history.categories,而不是 categories。
+func TestUnavailableArchiveScopeErrorPointsToHistoryConfig(t *testing.T) {
+	region, err := apple.LookupRegion("CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg := unavailableScopeError(scope{region: region, category: "iphone", archiveOnly: true}).Error(); !strings.Contains(msg, "history.categories") {
+		t.Errorf("只归档分类的报错应指向 history.categories,实际 %q", msg)
+	}
+	if msg := unavailableScopeError(scope{region: region, category: "iphone"}).Error(); strings.Contains(msg, "history.") {
+		t.Errorf("普通分类的报错不应提 history,实际 %q", msg)
 	}
 }

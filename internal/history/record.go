@@ -42,6 +42,8 @@ type Record struct {
 	// 标题解析是静默失败的,解析器日后修好了,旧档案应当跟着得到修正。
 	Spec      filter.Spec `json:"spec"`
 	FirstSeen time.Time   `json:"first_seen"`
+	// Approx 只用于下架行,表示真实下架时刻只知道不晚于 Time,见 CloseStale。
+	Approx bool `json:"approx,omitempty"`
 }
 
 // Key 与状态库的键一致。
@@ -105,6 +107,44 @@ func Seed(s *state.State, now time.Time) []Record {
 	out := make([]Record, 0, len(s.Items))
 	for _, e := range s.Items {
 		out = append(out, newRecord(KindBaseline, e, now))
+	}
+	sortRecords(out)
+	return out
+}
+
+// CloseStale 为档案里仍在架、状态库里却已不存在的商品补出下架记录。
+//
+// Diff 只看得到一轮前后的差异,程序没看着的时候发生的下架它补不回来:
+// 档案关闭期间下架的商品,或者状态文件被删掉重建之前就没了的商品,
+// 在档案里会永远停在「在售」,在架时长一直涨。调用方在每个范围每次进程启动后
+// 提交第一轮时对一次账即可——之后的下架都由 Diff 实时记下。
+//
+// existing 是档案已有的记录,pending 是本轮即将写入的记录(一起折叠,
+// 否则本轮刚重新上架的商品会被误关);scopes 是本次要对账的 "region/category",
+// 只对状态库里已建立基线的范围对账,还没抓到过的范围无从判断谁已下架。
+// 下架时刻取 now 并标为近似:只知道它在 now 之前就没了。
+func CloseStale(existing, pending []Record, after *state.State, scopes map[string]bool, now time.Time) []Record {
+	now = now.Truncate(time.Second)
+	all := make([]Record, 0, len(existing)+len(pending))
+	all = append(all, existing...)
+	all = append(all, pending...)
+
+	var out []Record
+	for _, s := range Fold(all) {
+		if !s.DelistedAt.IsZero() || !scopes[s.Region+"/"+s.Category] {
+			continue
+		}
+		if _, ok := after.Items[s.Region+"/"+s.Category+"/"+s.PartNumber]; ok {
+			continue
+		}
+		out = append(out, Record{
+			Time: now, Kind: KindDelisted, Approx: true,
+			Region: s.Region, Category: s.Category, PartNumber: s.PartNumber,
+			Title: s.Title, URL: s.URL, PriceCents: s.Price(), Currency: s.Currency,
+			Dimensions: s.Dimensions,
+			Spec:       filter.ParseSpec(s.Title),
+			FirstSeen:  s.ListedAt,
+		})
 	}
 	sortRecords(out)
 	return out

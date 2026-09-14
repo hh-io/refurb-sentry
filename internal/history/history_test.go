@@ -185,3 +185,54 @@ func TestFoldApproximateListing(t *testing.T) {
 		t.Fatalf("以调价记录开头时,上架价应取调价前的价格,实际 %+v", sales[1].Prices)
 	}
 }
+
+// 写完档案、落状态前被 kill,下一轮会把同一条下架再写一遍。
+// 它必须被丢弃,而不是变成一次缺了上架记录的「新售卖」。
+func TestFoldDropsDuplicateDelisting(t *testing.T) {
+	h := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Hour) }
+	sales := Fold([]Record{
+		rec(KindListed, "A", h(0), 100, nil),
+		rec(KindDelisted, "A", h(1), 100, nil),
+		rec(KindDelisted, "A", h(2), 100, nil),
+	})
+	if len(sales) != 1 || !sales[0].DelistedAt.Equal(h(1)) {
+		t.Fatalf("重复的下架行应被合并为同一次售卖,实际 %+v", sales)
+	}
+}
+
+// 程序没看着的时候下架的商品(档案关闭期间、状态文件重建前)要靠对账补上下架。
+func TestCloseStale(t *testing.T) {
+	st := state.New()
+	st.Apply("CN", "mac", []apple.Product{prod("KEEP", 100, nil)}, t0)
+	st.Apply("CN", "ipad", []apple.Product{}, t0)
+
+	existing := []Record{
+		rec(KindListed, "KEEP", t0, 100, nil),
+		rec(KindListed, "GONE", t0, 200, nil),
+		rec(KindListed, "SOLD", t0, 300, nil),
+		rec(KindDelisted, "SOLD", t0.Add(time.Hour), 300, nil),
+	}
+	other := rec(KindListed, "IPAD", t0, 400, nil)
+	other.Category = "ipad"
+	existing = append(existing, other)
+	// 本轮刚写入的记录要一起折叠:RELIST 在档案里已下架、本轮重新上架且在状态库里。
+	existing = append(existing, rec(KindListed, "RELIST", t0, 1, nil), rec(KindDelisted, "RELIST", t0.Add(time.Hour), 1, nil))
+	st.Items["CN/mac/RELIST"] = state.Entry{Region: "CN", Category: "mac", PartNumber: "RELIST"}
+	pending := []Record{rec(KindListed, "RELIST", t0.Add(2*time.Hour), 1, nil)}
+
+	now := t0.Add(48 * time.Hour)
+	got := CloseStale(existing, pending, st, map[string]bool{"CN/mac": true}, now)
+	if strings.Join(kinds(got), ",") != "GONE:delisted" {
+		t.Fatalf("只应关闭 CN/mac 里状态库已没有的 GONE(ipad 不在本次对账范围),实际 %v", kinds(got))
+	}
+	if !got[0].Approx || !got[0].Time.Equal(now) || got[0].PriceCents != 200 {
+		t.Fatalf("补出的下架应为近似、时刻取 now、带最后价格,实际 %+v", got[0])
+	}
+
+	sales := Fold(append(existing, got...))
+	for _, s := range sales {
+		if s.PartNumber == "GONE" && !s.DelistedApprox {
+			t.Fatal("折叠后 GONE 的下架时刻应标为近似")
+		}
+	}
+}

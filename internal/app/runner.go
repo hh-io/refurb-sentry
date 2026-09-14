@@ -49,6 +49,9 @@ type Runner struct {
 	// rollbacks 是连续回滚的轮数,用于在推送永久性失败时放弃重试。见 maxRollbacks。
 	rollbacks int
 
+	// historySynced 记录本进程内已与状态库对过账的范围("region/category"),见 recordHistory。
+	historySynced map[string]bool
+
 	// summaryAt 是日报触发时刻相对当天零点的偏移,nil 表示未启用。
 	// 用指针而不是 -1 之类的哨兵:零值必须等于关闭,而 0 本身是合法的 00:00。
 	summaryAt *time.Duration
@@ -230,7 +233,7 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 				// 从未成功抓取过则判定为配置写错,直接退出;
 				// 曾经正常过则可能是 Apple 临时下线了分类,不该让长驻进程死掉。
 				if !r.st.IsBootstrapped(sc.region.Code, sc.category) {
-					fatal = append(fatal, fmt.Errorf("%s: 该地区不提供此分类,请从 categories 中移除或改用其他地区", sc))
+					fatal = append(fatal, unavailableScopeError(sc))
 					continue
 				}
 				r.log.Error("分类不可用,本轮跳过", "scope", sc.String())
@@ -337,6 +340,17 @@ func (r *Runner) reconcile(ctx context.Context, results []fetched, now time.Time
 	return r.save()
 }
 
+// unavailableScopeError 说明首轮遇到的不可用范围该去配置的哪里改。
+// 只归档的分类写在 history.categories 里,且对全部地区生效——
+// 叫人「从 categories 中移除」会让人对着一份根本没有这个分类的列表找半天。
+func unavailableScopeError(sc scope) error {
+	if sc.archiveOnly {
+		return fmt.Errorf("%s: 该地区不提供此分类,请从 history.categories 中移除"+
+			"(它对 regions 里的每个地区都生效),或改用其他地区", sc)
+	}
+	return fmt.Errorf("%s: 该地区不提供此分类,请从 categories 中移除或改用其他地区", sc)
+}
+
 // archiveOnlyCategories 返回只归档、不推送的分类集合。
 func (r *Runner) archiveOnlyCategories() map[string]bool {
 	set := map[string]bool{}
@@ -371,6 +385,11 @@ func pushable(events []state.Event, archiveOnly map[string]bool) []state.Event {
 //
 // 写入失败只记 ERROR,不回滚也不让本轮失败:档案是派生数据,
 // 为它回滚会让已经送达的通知下一轮重推一遍,理由与日报送达失败不回滚相同。
+//
+// 每个范围在本进程内第一次提交时,还要和状态库对一次账(history.CloseStale):
+// 程序没看着的时候(档案关闭期间、状态文件重建之前)下架的商品,Diff 补不回来,
+// 不对账的话它们在档案里永远「在售」。对账要读整个档案,所以每个范围每次启动只做一次;
+// 档案刚新建时里面没有旧售卖,直接记为已对账。
 func (r *Runner) recordHistory(before *state.State, now time.Time) {
 	if !r.cfg.History.IsEnabled() || r.dryRun {
 		return
@@ -386,14 +405,48 @@ func (r *Runner) recordHistory(before *state.State, now time.Time) {
 		recs = history.Seed(before, now)
 	}
 	recs = append(recs, history.Diff(before, r.st, now)...)
-	if len(recs) == 0 {
-		return
+
+	if r.historySynced == nil {
+		r.historySynced = map[string]bool{}
 	}
-	if err := history.Append(path, recs); err != nil {
-		r.log.Error("写入历史档案失败,本轮变动未归档", "records", len(recs), "err", err)
-		return
+	pending := map[string]bool{}
+	for sc, ok := range r.st.Bootstrapped {
+		if ok && !r.historySynced[sc] {
+			pending[sc] = true
+		}
 	}
-	r.log.Debug("已写入历史档案", "records", len(recs), "seeded", seed)
+	var stale []history.Record
+	if len(pending) > 0 && !seed {
+		existing, bad, err := history.Read(path)
+		if err != nil {
+			// 对账失败不影响本轮变动照常写入,范围保持待对账,下一轮再试。
+			r.log.Error("读取历史档案失败,暂未与状态库对账", "err", err)
+			pending = nil
+		} else {
+			if bad > 0 {
+				r.log.Warn("历史档案中有无法解析的行,已跳过", "lines", bad)
+			}
+			stale = history.CloseStale(existing, recs, r.st, pending, now)
+		}
+	}
+	recs = append(recs, stale...)
+
+	if len(recs) > 0 {
+		if err := history.Append(path, recs); err != nil {
+			r.log.Error("写入历史档案失败,本轮变动未归档", "records", len(recs), "err", err)
+			return
+		}
+	}
+	// 写入成功后才记为已对账,否则补出的下架记录丢了也不会再补。
+	for sc := range pending {
+		r.historySynced[sc] = true
+	}
+	if len(stale) > 0 {
+		r.log.Info("历史档案中有商品已不在状态库里,补记为下架(时刻为近似)", "records", len(stale))
+	}
+	if len(recs) > 0 {
+		r.log.Debug("已写入历史档案", "records", len(recs), "seeded", seed)
+	}
 }
 
 // sameDay 判断两个时刻是否落在 loc 时区的同一天。
