@@ -27,23 +27,26 @@
 - 货币护栏只能发现跨币种的串站。**BE/DE/ES/FR/IE/IT/NL 同为 EUR**,
   代理落到错误的欧元区国家时它发现不了,README 已如实说明。
 
-### 两个脆弱解析点
+### 三个脆弱解析点
 
-改动前务必读该文件的注释。两处的失败方式都是**静默的**:
+改动前务必读该文件的注释。三处的失败方式都是**静默的**:
 
 1. `internal/filter/chip.go` — 芯片型号与 CPU/GPU 核心数不在 dimensions 里,只在 `title` 字符串,
    且各语言语序完全不同。正则因此把芯片指示词与型号**解耦**、并同时认两种语序,不按地区分派。
 2. `internal/apple/detail.go` — 详情页补内存。判据语言无关:用列表页已知的 `dimensionCapacity`
    作锚点排除存储,剩余不是恰好一条就放弃。**缺锚点时必须直接放弃**。
+3. `internal/filter/chip.go` 的 `nanoTextureRE` — 纳米纹理同样只在标题里,各站写法按实测归纳
+   (KR 无样本,未核实)。认错的后果是 `-history -nano` 静默漏掉或混进整批记录。
+   加地区或上游改文案时,先抓真实标题补进 `TestParseSpecNanoTexture` 再动正则。
 
-两处栽在同一个坑上:**标题与容量文本都混用多种 Unicode 分隔符**,同一页面内都不统一
+三处栽在同一个坑上:**标题与容量文本都混用多种 Unicode 分隔符**,同一页面内都不统一
 (U+00A0 西/意/法、U+2011 德、U+2014 澳)。码位一律写 `\u` 转义而非字面字符,
 空白一律用 `\p{Zs}` 整类而非手抄码位表——两种写法的退化都不会报错,只会让某个地区悄悄失灵。
 
 ## 不能破坏的正确性约束
 
 前三条防的是**凭空产生通知**(误报),第五条防的是**悄悄丢掉通知**(漏报),
-第四条是 `-dry-run` 的工具契约,第六条是改状态结构时的连带责任。
+第四条是 `-dry-run` 的工具契约,第六条是改状态结构时的连带责任,第七条守的是历史档案。
 遇到这几条没覆盖的新场景(比如再加一个通知触发源),先想清楚它该靠误报还是漏报那一边。
 
 1. **冷启动必须静默,且按 region/category 分别记录**。`State.Bootstrapped` 是 `map[string]bool`
@@ -65,6 +68,13 @@
    重建基线、丢掉全部 `first_seen`;不升,旧文件会按新语义被解读。判据是两边的代价——
    当初加 `Counters` 刻意没升版本,因为「少算一天计数」远轻于「丢掉全部首次发现时间」;
    但只要新字段改变了既有字段的含义,就必须升。见 `internal/state/store.go`。
+7. **历史档案只在基线提交的两条路径上写入**(送达成功、超过 `maxRollbacks` 强制推进),
+   且在 `save` 之前。回滚轮写了会重复记录;放在 `save` 之后,两者之间被 kill 会永久丢一批记录
+   (之前写则只是重复,由 `history.Fold` 合并)。档案写入失败只记 ERROR,不回滚、不让本轮失败。
+   记录从 Apply 前后的状态推导(`history.Diff`),**不要改成复用 `state.Event`**——
+   冷启动与涨价恰好不产生事件,而档案需要这两类。同理,`history.categories` 的
+   只归档分类必须在规则匹配**之前**挡掉:空规则集与没写 `categories` 的规则会命中任何分类。
+   见 `internal/app/runner.go` 的 `recordHistory` 与 `internal/history/record.go`。
 
 推导过程分别在 `internal/state/state.go`、`store.go` 与 `internal/app/runner.go` 的注释里。
 
@@ -87,6 +97,11 @@
   解析各家错误码、以及要收紧时的正确做法,见该文件注释。四家的示例配置与两版 README 都写明了。
 - 通用 webhook 只做模板渲染,**不算签名**。飞书/钉钉的「加签」安全模式因此用不了,
   改用自定义关键词或 IP 白名单。
+- **历史档案(`history`)默认开启**,因为无法事后补录。开关用 `*bool` 而非 `daily_summary`
+  那种「空串即关闭」,后者需要一整套 null/空白/环境变量的特判才守得住。默认路径跟随
+  `state_path` 的目录而不是固定 `data/`:systemd 单元的工作目录只读。档案开启时
+  `fill_missing_memory` 不再以规则为前提、缺内存的都补——按内存查档案同样会静默漏掉整档机型。
+  这些见 `internal/config/config.go` 与 `runner.go` 的 `fillMissingMemory`。
 - 规则过滤发生在 **diff 之后、推送之前**。状态库始终记录全部商品,
   这样以后放宽规则时,早已在架的商品不会被误报成新上架。
 - 配置在 **YAML 节点层**展开环境变量,不是文本替换——否则注释里的 `${VAR}` 会被误当引用。
@@ -94,7 +109,7 @@
   不该逼用户去设 `TELEGRAM_BOT_TOKEN`。
 - 依赖只有 `gopkg.in/yaml.v3` 和 `golang.org/x/net`(SOCKS5),其余全标准库。
   加新依赖前先确认标准库真的做不到。
-- **日志走 stderr,控制台通知与 `-list-dims` 的输出走 stdout**。三种守护方式都同时收两个流,
+- **日志走 stderr,控制台通知与 `-list-dims`、`-history` 的输出走 stdout**。三种守护方式都同时收两个流,
   所以搞错不影响功能,只会误导那些自己重定向输出的人——只写 `>log.txt` 会把全部日志漏掉。
 - 日志用自定义的 `consoleHandler` 而非 slog 的 TextHandler。理由、`WithAttrs` 的分组语义
   与引号规则见 `cmd/refurb-sentry/log.go`。
@@ -112,7 +127,7 @@
 |---|---|
 | 日志行格式 | 稳态体积估算(**每行约 40 字节、一年约 10MB**)出现在两版 README、`deploy/docker-compose.yml` 与 `deploy/com.refurb-sentry.plist` 的注释里——这四处的读者都要就地看到这个数。曾经 README 写 25MB 而 compose 写 50MB,谁都不知道该信哪个 |
 | 参数、规则字段、地区/分类、行为约束 | `README.md`(英)与 `README.zh-CN.md`(中)内容对等、顶部互链。只改一版会留下一份静默过期的文档 |
-| 新增地区 | `internal/apple/regions.go` 加一行(启动校验会验证可用性);`.github/ISSUE_TEMPLATE/spec_parse.yml` 的地区下拉是**手抄清单**,漏了不报错,只会让新地区的用户提不了规格解析 issue;新货币还要补 `internal/apple/model.go` 的符号表,否则展示退化成 "XXX 999" |
+| 新增地区 | `internal/apple/regions.go` 加一行(启动校验会验证可用性);`.github/ISSUE_TEMPLATE/spec_parse.yml` 的地区下拉是**手抄清单**,漏了不报错,只会让新地区的用户提不了规格解析 issue;新语种要抓真实标题补进 `TestParseSpecNanoTexture`,纳米纹理的写法认不出来同样不报错;新货币还要补 `internal/apple/model.go` 的符号表,否则展示退化成 "XXX 999" |
 
 配置示例分两份:`configs/config.example.yaml` 是十来行的**最小配置**(README 快速开始、
 cask caveats、compose 注释里让用户 cp 的都是它),`configs/config.full.yaml` 是全量参考,
@@ -142,6 +157,7 @@ go test ./... && go vet ./... && gofmt -l .
 ./refurb-sentry -config configs/config.yaml -list-dims              # 查当前可用的过滤维度
 ./refurb-sentry -config configs/config.yaml -list-dims -skeleton    # 另附可粘贴的规则骨架
 ./refurb-sentry -config configs/config.yaml -once -dry-run
+./refurb-sentry -config configs/config.yaml -history -chip "M5 Pro" -memory 32gb   # 查历史档案
 ```
 
 CI(`.github/workflows/ci.yml`)在每次 push / PR 上跑同样的三项检查。

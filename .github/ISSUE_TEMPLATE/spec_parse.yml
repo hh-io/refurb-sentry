@@ -1,16 +1,16 @@
 name: 规格解析异常 / Spec parsing issue
-description: 芯片型号或 CPU/GPU 核心数没被正确识别 / A chip model or core count was parsed wrong
+description: 芯片型号、CPU/GPU 核心数或纳米纹理没被正确识别 / A chip model, core count or nano-texture flag was parsed wrong
 title: "[spec] "
 labels: ["spec-parse"]
 body:
   - type: markdown
     attributes:
       value: |
-        芯片型号与核心数不在页面的结构化数据里,只能从商品标题解析,
-        是本项目唯一的脆弱点。Apple 调整文案或新增机型都可能让它失手,欢迎反馈。
+        芯片型号、核心数与纳米纹理不在页面的结构化数据里,只能从商品标题解析,
+        是本项目最脆弱的地方。Apple 调整文案或新增机型都可能让它失手,欢迎反馈。
 
-        Chip models and core counts aren't in the page's structured data — they can
-        only be parsed out of the product title, which is the one fragile part of
+        Chip models, core counts and nano-texture glass aren't in the page's structured
+        data — they can only be parsed out of the product title, the most fragile part of
         this project. New wording from Apple can break it.
 
   - type: input
@@ -55,7 +55,7 @@ body:
     id: expected
     attributes:
       label: 应该解析成什么 / Expected
-      placeholder: "chip: M5 Pro, CPU: 14, GPU: 20"
+      placeholder: "chip: M5 Pro, CPU: 14, GPU: 20, nano-texture: yes"
     validations:
       required: true
 

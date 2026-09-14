@@ -31,6 +31,7 @@ Single static binary, runs as a lightweight daemon, keeps state in one JSON file
 - [Notification Preview](#notification-preview)
 - [Coverage](#coverage)
 - [Filter Rules](#filter-rules)
+- [History Archive](#history-archive)
 - [Delivery Channels](#delivery-channels)
 - [Configuration & Networking](#configuration--networking)
 - [Production Deployment](#production-deployment)
@@ -45,6 +46,7 @@ Single static binary, runs as a lightweight daemon, keeps state in one JSON file
 
 - ⚡️ **Near Real-time Monitoring**: Tracks 3 distinct event kinds: new listings, price drops, and delistings. Polls every 120s, the floor imposed by the CDN's cache TTL — see [Request Frequency](#request-frequency--cdn-caching).
 - 🎯 **Precise Spec Filtering**: Filter by model, chip (`M2`, `M3`, `M4 Pro`, `M4 Max`, etc.), CPU/GPU core counts, memory, storage capacity, colour, release year, and price range.
+- 🗂️ **History Archive**: Every listing, price change and delisting is appended to a local file by default. Months later, `-history` answers "how many times has this configuration been listed, at what price, and how fast did it sell" — see [History Archive](#history-archive).
 - 📱 **Multi-channel Delivery**: Built-in Bark support and a generic webhook (ready for Telegram, Discord, Feishu, WeCom, DingTalk, ServerChan, etc.). Automatic digest bundling prevents restock spam.
 - 🌍 **19 Regions Supported**: North America, Europe, East Asia and Oceania — full list under [Coverage](#coverage).
 - 🛡️ **Lightweight & Dependable**: Pure Go static binary, no database — state is one JSON file, and the container image is ~17MB. Features **silent initial baselines**, **fetch failures that never cause delistings**, and **round-wide rollback when delivery fails**.
@@ -52,7 +54,7 @@ Single static binary, runs as a lightweight daemon, keeps state in one JSON file
 ### Out of Scope (Explicit Boundaries)
 
 - **No inventory unit counts**: The official data source only signals presence ("in list = available"); stock quantities do not exist.
-- **No price history charts**: State only tracks current prices to detect price drops.
+- **No price charts**: The history archive records each sale's listing window and prices for command-line lookup; there are no charts.
 - **No anti-bot evasion**: Listing pages are public static assets served via CDN; proxy pools and UA rotation are unnecessary.
 - **No auto-checkout or sniping**: This tool is strictly an alert daemon. Feature requests for automated purchasing will not be accepted.
 
@@ -132,6 +134,7 @@ export BARK_KEY=your_bark_device_key
 | `-dry-run` | Dry-run mode: prints notifications to stdout without modifying state or sending alerts |
 | `-list-dims` | Prints currently available dimensions and values for configured regions/categories |
 | `-skeleton` | With `-list-dims`, also prints a paste-ready rule skeleton for the `rules:` block; given alone it implies `-list-dims` |
+| `-history` | Query the history archive and exit; query flags are listed under [History Archive](#history-archive) |
 | `-version` | Print version information |
 
 ---
@@ -375,23 +378,130 @@ when your rules filter by memory.
   the rest of the process's life. Retrying is capped at three rounds per part number,
   though: if upstream keeps failing, retrying forever would not read the memory either
   and would only keep hammering the store.
-- **Enabling it without a memory rule is reported at startup.** The fill is skipped
-  entirely in that case (it could not change any notification), and the startup warning
-  says so instead of leaving you to wonder why nothing changed.
+- **Enabling it with no memory rule and the history archive disabled is reported at
+  startup.** The fill is skipped entirely in that case (it could not change anything),
+  and the startup warning says so instead of leaving you to wonder why nothing changed.
 - **Categories with no memory dimension are skipped entirely**, watch among them. This
   is not merely about saving requests: in testing, watch detail pages yielded a
   "memory" for all 28 products — actually the storage capacity — which would have
   polluted `tsMemorySize`.
-- **Looked up on demand, not for everything.** Only products that could still match a
-  rule once memory is set off are fetched. Model, chip, capacity and price all come
-  from the grid; a product those already rule out will not match however much memory it
-  turns out to have. The more specific your rules, the fewer lookups — and if no rule
-  filters by memory, none happen at all.
+- **Everything when the history archive is on (the default), on demand when it is off.**
+  The archive has to be queryable by memory, so with it enabled every product missing
+  memory that has a capacity anchor is filled. With the archive disabled, only products
+  that could still match a rule once memory is set aside are fetched: model, chip,
+  capacity and price all come from the grid, and a product those already rule out will
+  not match however much memory it turns out to have. If no rule filters by memory,
+  none happen at all.
 
-The cost is a slower first round, scaling with how specific your rules are. Measured
-with the MacBook Pro rule shown above: of the 58 CN mac products missing memory, only
-19 were worth looking up (about 50 seconds at the default 1-3s spacing); the other 39
-were ruled out from the grid alone. Steady-state rounds cost almost nothing extra.
+The cost is a slower first round. Measured on CN mac with the archive enabled: about 45
+products filled (roughly 2 minutes at the default 1-3s spacing). With the archive
+disabled and only the MacBook Pro rule shown above, just 19 of the 58 products missing
+memory were worth looking up (about 50 seconds). Results are cached per part number, so
+steady-state rounds only add requests for newly listed products; the cache lives in
+memory, so the first round after a restart fills again.
+
+---
+
+## History Archive
+
+The same configuration gets listed in the refurbished store again and again. When you
+are ready to buy months later and want to know "how many times has this appeared, at what
+price, and how fast did it sell", the state file cannot tell you — it only keeps products
+currently in stock, overwrites prices in place and drops delisted entries. The history
+archive fills that gap: **on by default**, it appends one line to `history.jsonl` for
+every listing, price change (increases included) and delisting.
+
+### 1. Querying
+
+```console
+$ ./refurb-sentry -config configs/config.yaml -history -chip "M5 Pro" -memory 48gb -storage 1tb -nano true
+
+CN · 翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 15 核中央处理器和 16 核图形处理器) 和纳米纹理显示屏 - 深空黑色
+  内存 48gb · 存储 1tb · 纳米纹理 · 共 3 次 · RMB 20,999 ~ RMB 21,799
+    ≤2026-09-14 17:19 → 2026-09-15 10:02  在架 ≥16小时42分   RMB 21,799  G1MLFCH/A
+     2026-10-02 09:41 → 2026-10-02 11:26  在架 1小时45分     RMB 21,799  G1MLFCH/A
+     2026-11-20 20:13 → 在售              在架 3天2小时      RMB 21,799 → RMB 20,999  G1MLFCH/A
+
+共 1 个配置、3 次售卖(档案共 1204 次售卖)
+```
+
+(Illustrative output. Like the rest of the terminal output it is in Chinese: `在架` is
+time in stock, `在售` still on sale.) Query flags only work together with `-history` and
+are rejected otherwise; separate multiple values with commas, which are ORed:
+
+| Flag | Description |
+|---|---|
+| `-rule` | Filter by the rule of that name in your config; combines (AND) with the flags below |
+| `-region` / `-category` | Region / category |
+| `-model` | Model (`refurbClearModel`), e.g. `macbookpro` |
+| `-chip` | Chip, e.g. `"M5 Pro,M5 Max"` |
+| `-memory` / `-storage` | Memory / storage, e.g. `32gb,36gb`, `1tb` |
+| `-color` | Colour (`dimensionColor`), e.g. `silver` |
+| `-nano` | `true` for nano-texture glass only, `false` for standard glass only |
+| `-title` | Title regex (matched against the normalized title) |
+
+- Matching **reuses the rule engine**, with exactly the semantics of `rules`: a missing
+  dimension does not match, chip and core counts are parsed from the title.
+- Results are grouped by configuration, most recent activity first, one line per listing.
+  `≤` means the product was already in stock when the archive started, so its real
+  listing time is only known to be no later than that, and time in stock is shown as `≥`.
+- When querying by memory, records lacking the memory dimension do not silently vanish:
+  a closing line reports how many sales could not be judged for that reason.
+- Reads the local file only: no network, no notification channel needed.
+
+You can also query the raw records with `jq`:
+
+```bash
+jq -c 'select(.spec.nano_texture and .dims.tsMemorySize == "48gb") | [.ts, .kind, .part_number, .price_cents]' data/history.jsonl
+```
+
+### 2. Configuration
+
+```yaml
+history:
+  enabled: true              # on by default
+  path: ""                   # empty: next to state_path, i.e. data/history.jsonl by default
+  categories: [ipad, watch]  # extra categories to archive without notifying
+```
+
+- **On by default**: the archive cannot be backfilled. Turning it on only when you want
+  to look something up means the months before are already gone.
+- **The default path follows `state_path`**: the Docker named volume and systemd's
+  `StateDirectory` both cover the state directory, so nothing extra needs mounting.
+- **`categories` are archived, never notified**: say you only want alerts for Macs but
+  would like iPad prices on record. These categories are fetched (one extra request per
+  category per round, also CDN-cached), baselined and archived, but their events are
+  dropped **before** rule matching — rules without `categories` and an empty rule set
+  cannot push them either, and they stay out of the daily summary. Moving one into the
+  top-level `categories` later will not flood you; its baseline already exists.
+- **Displays live under `mac`** (`refurbClearModel: display`); no need to add them.
+- With the archive on, `http.fill_missing_memory` no longer depends on your rules — see
+  [the previous section](#5-missing-memory-dimension-and-fill_missing_memory).
+
+### 3. Record Format & Reliability
+
+Each line is a complete JSON object; `kind` is `baseline` (already in stock when the
+archive started), `listed`, `price` or `delisted`:
+
+```json
+{"ts":"2026-11-23T09:12:40+08:00","kind":"price","region":"CN","category":"mac","part_number":"G1MLFCH/A","title":"翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 15 核中央处理器和 16 核图形处理器) 和纳米纹理显示屏 - 深空黑色","url":"https://www.apple.com.cn/shop/product/g1mlfch/a","price_cents":2099900,"old_price_cents":2179900,"currency":"CNY","dims":{"dimensionCapacity":"1tb","dimensionColor":"spaceblack","refurbClearModel":"macbookpro","tsMemorySize":"48gb"},"spec":{"chip":"M5 Pro","cpu_cores":15,"gpu_cores":16,"nano_texture":true},"first_seen":"2026-11-20T20:13:05+08:00"}
+```
+
+- **Written only when a round's baseline is committed**: a round rolled back after failed
+  delivery writes nothing, and the successful retry writes once, so nothing is recorded
+  twice. `-dry-run` writes nothing.
+- When the archive is first enabled, products already in the state file are recorded as
+  `baseline`, using the state file's first-seen time, so none are missing.
+- Appended and fsynced; a torn line left by a power cut is skipped with a warning on read
+  and does not affect other records.
+- A write failure (e.g. a full disk) is logged at ERROR and affects neither notifications
+  nor the baseline.
+- `spec` is a convenience for external tools; `-history` always re-parses `title`, so
+  old records benefit when the parser is fixed later.
+- **Nano-texture only appears in titles** and is recognized by the wording measured on
+  each store (`Nano-texture`, `Nanotextur`, `nanotextuur`, `nano-texturé`, `nanotexture`,
+  `nanotexturizada`, `纳米纹理`, `納米紋理`, `奈米紋理`). The KR store had no nano-texture
+  products in stock when measured, so its wording is unverified.
 
 ---
 
@@ -564,7 +674,7 @@ Services automatically restart with a 30s backoff on crash and flush state clean
 
 ### Disk usage over long runs
 
-The program writes no log files of its own — logs go to stderr (console notifications and dimension lists go to stdout) for the
+The program writes no log files of its own — logs go to stderr (console notifications, dimension lists and `-history` results go to stdout) for the
 supervisor to collect. In steady state that is at least one line per polling round
 (every 2 minutes by default, about 40 bytes each), roughly 10MB a year; network hiccups add WARN lines, and
 `log_level: debug` multiplies it. **Rotation differs by supervisor**, so it is worth
@@ -586,6 +696,11 @@ The state file does not grow without bound: it records only products **currently
 stock**, dropping entries as they are delisted, so its size tracks the catalogue rather
 than accumulating over time (about 200KB measured across all CN categories).
 
+The [history archive](#history-archive), by contrast, only grows and is not rotated:
+about 600 bytes per line; archiving CN mac + ipad + watch starts at roughly 400 lines
+and 230KB, then grows with the listing rate. Set `history.enabled: false` if you do not
+want it.
+
 <details>
 <summary>Why not GitHub Actions or Cloudflare Workers?</summary>
 
@@ -597,7 +712,7 @@ than accumulating over time (about 200KB measured across all CN categories).
 
 ## Reliability & State
 
-State defaults to `data/state.json`, storing part numbers, titles, current prices, dimensions, and first/last seen timestamps. Updates use atomic writes (temporary file + atomic rename) to guard against corruption during power cuts or crashes. To rebuild the baseline from scratch, delete the file — the next start re-seeds silently.
+State defaults to `data/state.json`, storing part numbers, titles, current prices, dimensions, and first/last seen timestamps. The history archive `history.jsonl` sits in the same directory; when it is written is covered under [History Archive](#3-record-format--reliability). Updates use atomic writes (temporary file + atomic rename) to guard against corruption during power cuts or crashes. To rebuild the baseline from scratch, delete the file — the next start re-seeds silently.
 
 Three reliability principles prevent missed alerts or alert storms:
 
