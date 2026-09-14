@@ -30,7 +30,9 @@ func main() {
 		dryRun      = flag.Bool("dry-run", false, "试运行:通知打印到标准输出,且不写入状态文件")
 		listDims    = flag.Bool("list-dims", false, "列出各地区/分类当前可用的过滤维度与取值后退出")
 		skeleton    = flag.Bool("skeleton", false, "配合 -list-dims:额外打印可直接粘贴到 rules: 下的规则骨架")
+		showHistory = flag.Bool("history", false, "查询历史档案:某个配置以前上架过几次、各卖多少钱,然后退出")
 		showVersion = flag.Bool("version", false, "打印版本后退出")
+		query       = registerHistoryFlags()
 	)
 	flag.Parse()
 
@@ -39,14 +41,19 @@ func main() {
 		return
 	}
 
-	if err := run(*configPath, *once, *dryRun, *listDims, *skeleton); err != nil {
+	if query.used() && !*showHistory {
+		fmt.Fprintln(os.Stderr, "错误: -rule、-chip、-memory 等查询参数只能配合 -history 使用")
+		os.Exit(2)
+	}
+
+	if err := run(*configPath, *once, *dryRun, *listDims, *skeleton, *showHistory, query); err != nil {
 		// 用 stderr 而非 slog:配置尚未加载时 logger 可能还不存在。
 		fmt.Fprintln(os.Stderr, "错误:", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath string, once, dryRun, listDims, skeleton bool) error {
+func run(configPath string, once, dryRun, listDims, skeleton, showHistory bool, query historyFlags) error {
 	cfg, warnings, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -71,6 +78,11 @@ func run(configPath string, once, dryRun, listDims, skeleton bool) error {
 	rules, err := filter.New(cfg.Rules)
 	if err != nil {
 		return err
+	}
+
+	// 查询结果与 -list-dims 一样走 stdout,日志(比如档案里有坏行)走 stderr。
+	if showHistory {
+		return runHistory(cfg, log, query, func(s string) { fmt.Println(s) })
 	}
 
 	// SIGINT/SIGTERM 触发 context 取消,由 Runner 负责落盘后再退出。
