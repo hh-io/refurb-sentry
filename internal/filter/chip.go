@@ -8,13 +8,15 @@ import (
 
 // Spec 是从商品标题里抽出的规格。内存与存储不在此处解析——
 // 它们已由页面的 dimensions 结构化提供,比解析文案可靠得多。
+//
+// json 标签供历史档案落盘使用。
 type Spec struct {
-	Chip     string // 归一化芯片名,如 "M5 Pro"、"A18 Pro";空串表示未能识别
-	CPUCores int    // 0 表示未能识别
-	GPUCores int
+	Chip     string `json:"chip,omitempty"`      // 归一化芯片名,如 "M5 Pro"、"A18 Pro";空串表示未能识别
+	CPUCores int    `json:"cpu_cores,omitempty"` // 0 表示未能识别
+	GPUCores int    `json:"gpu_cores,omitempty"`
 	// NanoTexture 表示标题声明了纳米纹理玻璃。false 同时涵盖「标准玻璃」与「没认出来」,
 	// 上游没有对应维度,两者无从区分。
-	NanoTexture bool
+	NanoTexture bool `json:"nano_texture"`
 }
 
 // 标题是全项目唯一的非结构化数据源,各语言站点的语序差异极大(均为实测):
