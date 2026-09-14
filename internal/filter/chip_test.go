@@ -10,54 +10,54 @@ func TestParseSpec(t *testing.T) {
 		want   Spec
 	}{
 		{"US", "Refurbished 14-inch MacBook Pro Apple M5 Pro chip with 12-Core CPU and 16-Core GPU",
-			Spec{"M5 Pro", 12, 16}},
+			Spec{"M5 Pro", 12, 16, false}},
 		{"US", "Refurbished Mac mini Apple M4 chip with 10-Core CPU and 10-Core GPU",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"US", "Refurbished MacBook Neo Apple A18 Pro chip - Silver",
-			Spec{"A18 Pro", 0, 0}},
+			Spec{"A18 Pro", 0, 0, false}},
 		{"US", "Refurbished Apple Watch SE 3 GPS, 40mm Starlight Aluminum Case with S/M Starlight Sport Band",
-			Spec{"", 0, 0}},
+			Spec{"", 0, 0, false}},
 		// 德国站用 U+2011 非断行连字符,归一化后才能匹配
 		{"DE", "Refurbished 13\" MacBook Air mit Apple M2 Chip, 8‑Core CPU und 10‑Core GPU - Space Grau",
-			Spec{"M2", 8, 10}},
+			Spec{"M2", 8, 10, false}},
 		{"CN", "翻新 Mac mini Apple M4 芯片 (配备 10 核中央处理器和 10 核图形处理器) 和千兆以太网端口",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"CN", "翻新 13 英寸 MacBook Air Apple M2 芯片 (配备 8 核中央处理器和 8 核图形处理器) - 星光色",
-			Spec{"M2", 8, 8}},
+			Spec{"M2", 8, 8, false}},
 		{"CN", "翻新 MacBook Neo (Apple A18 Pro 芯片) - 银色",
-			Spec{"A18 Pro", 0, 0}},
+			Spec{"A18 Pro", 0, 0, false}},
 		// 香港用繁体「晶片」「核心 CPU」,与大陆文案完全不同
 		{"HK", "翻新產品 14 吋 MacBook Pro Apple M5 晶片 (配備 10 核心 CPU 及 10 核心 GPU) - 太空黑",
-			Spec{"M5", 10, 10}},
+			Spec{"M5", 10, 10, false}},
 		{"HK", "翻新產品 24 吋 iMac Apple M4 晶片配備 8 核心 CPU 及 8 核心 GPU - 銀色",
-			Spec{"M4", 8, 8}},
+			Spec{"M4", 8, 8, false}},
 		{"HK", "翻新產品 Apple Studio Display,納米紋理玻璃,可調校斜度座架",
-			Spec{"", 0, 0}},
+			Spec{"", 0, 0, true}},
 		// 日本站把核心数写在芯片名之前,且 "Apple M4チップ" 无空格
 		{"JP", "Mac mini [整備済製品] 10コアCPUと10コアGPUを搭載したApple M4チップ、10Gb Ethernet",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"JP", "14インチMacBook Pro [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ - スペースブラック",
-			Spec{"M5", 10, 10}},
+			Spec{"M5", 10, 10, false}},
 		{"JP", "MacBook Neo [整備済製品] Apple A18 Pro チップ - シルバー",
-			Spec{"A18 Pro", 0, 0}},
+			Spec{"A18 Pro", 0, 0, false}},
 		// 以下语言里 puce/chip 位于型号之前,或用连字符连成 M4-chip,
 		// 早期「要求 Apple 与 chip 相邻」的正则在这些站点识别率为 0。
 		{"NL", "Refurbished 13‑inch MacBook Air Apple M4-chip met 10‑core CPU en 10‑core GPU - Zilver",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"FR", "Mac mini reconditionné avec puce Apple M4, CPU 10 cœurs, GPU 10 cœurs et Gigabit Ethernet",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"FR", "MacBook Air 15 pouces reconditionné avec puce Apple M4, CPU 10 cœurs et GPU 10 cœurs",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"IT", "MacBook Air 13\" ricondizionato con chip Apple M2, CPU 8‑core e GPU 10‑core - Galassia",
-			Spec{"M2", 8, 10}},
+			Spec{"M2", 8, 10, false}},
 		{"ES", "iMac reacondicionado de 24 pulgadas con chip M4 de Apple, CPU de 8 núcleos y GPU de 8 núcleos",
-			Spec{"M4", 8, 8}},
+			Spec{"M4", 8, 8, false}},
 		{"KR", "리퍼비쉬 MacBook Pro 14 Apple M5 Pro 칩 모델(15코어 CPU 및 16코어 GPU) - 스페이스 블랙",
-			Spec{"M5 Pro", 15, 16}},
+			Spec{"M5 Pro", 15, 16, false}},
 		{"TW", "Mac mini Apple M4 晶片配備 10 核心 CPU 與 10 核心 GPU、乙太網路 (整修品)",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"CH", "Refurbished 15\" MacBook Air mit Apple M4 Chip, 10‑Core CPU und 10‑Core GPU - Polarstern",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 	}
 
 	for _, c := range cases {
@@ -76,13 +76,53 @@ func TestParseSpecWithoutChipHint(t *testing.T) {
 		want  Spec
 	}{
 		{"MacBook Pro reacondicionado de 16 pulgadas con M4 Pro, CPU de 14 núcleos y GPU de 20 núcleos - Negro espacial",
-			Spec{"M4 Pro", 14, 20}},
+			Spec{"M4 Pro", 14, 20, false}},
 		{"MacBook Pro reacondicionado de 16 pulgadas con M4 Max, CPU de 16 núcleos y GPU de 40 núcleos - Plata",
-			Spec{"M4 Max", 16, 40}},
+			Spec{"M4 Max", 16, 40, false}},
 	}
 	for _, c := range cases {
 		if got := ParseSpec(c.title); got != c.want {
 			t.Errorf("ParseSpec(%q)\n  got  %+v\n  want %+v", c.title, got, c.want)
+		}
+	}
+}
+
+// 纳米纹理样本为各站 mac/ipad 页面的真实标题,每种写法取一条。
+// 分隔符一律写成 \u 转义,理由见 TestParseSpecNormalizesSeparators。
+func TestParseSpecNanoTexture(t *testing.T) {
+	yes := []struct{ region, title string }{
+		{"US", "Refurbished Apple Studio Display, Nano-texture glass, Tilt adjustable stand"},
+		{"US", "Refurbished iPad Pro 11‑inch (M4) Wi-Fi 1TB with Nano-texture glass - Space Black"},
+		{"SG", "Refurbished 14-inch MacBook Pro Apple M4 Chip with 10‑Core CPU and 10‑Core GPU, Nano-texture display - Silver"},
+		{"JP", "14インチMacBook Pro [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ、 Nano-textureディスプレイ - スペースブラック"},
+		{"JP", "11インチiPad Pro（M4）Wi-Fi + Cellular 1TB（Nano-textureガラス搭載）- スペースブラック [整備済製品]"},
+		{"DE", "Refurbished 14\" MacBook Pro mit Apple M4 Chip, 10‑Core CPU und 10‑Core GPU, Display mit Nanotextur – Space Schwarz"},
+		{"CH", "Refurbished 24\" iMac mit Apple M4 Chip, 10‑Core CPU und 10‑Core GPU, Gigabit Ethernet, Nanotexturglas - Blau"},
+		{"NL", "Refurbished 24‑inch iMac, Apple M4-chip met 10‑core CPU en 10‑core GPU, Gigabit Ethernet, glas met nanotextuur - Blauw"},
+		{"FR", "iMac 24 pouces reconditionné avec puce Apple M4, CPU 10 cœurs et GPU 10 cœurs, Gigabit Ethernet, écran nano-texturé - Argent"},
+		{"IT", "iMac 24\" ricondizionato con chip Apple M4, CPU 10‑core e GPU 10‑core, Gigabit Ethernet, vetro con nanotexture - Argento"},
+		{"ES", "MacBook Pro reacondicionado de 14\" con chip M4, CPU de 10 núcleos, GPU de 10 núcleos y pantalla nanotexturizada - Negro espacial"},
+		{"CN", "翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 15 核中央处理器和 16 核图形处理器) 和纳米纹理显示屏 - 银色"},
+		{"CN", "翻新 Apple Studio Display (配备 Nano-texture 纳米纹理玻璃面板和 VESA 支架转换器)"},
+		{"HK", "翻新產品 Apple Studio Display，納米紋理玻璃，可調校斜度座架"},
+		{"TW", "Studio Display - 奈米紋理玻璃 - 可調整斜度的支架 (整修品)"},
+		// 连字符换成归一化表里没有的码位时仍须认得(\p{Pd} 兜底)
+		{"--", "Refurbished Studio Display - Nano⸺texture glass"},
+	}
+	for _, c := range yes {
+		if !ParseSpec(c.title).NanoTexture {
+			t.Errorf("%s: 未识别出纳米纹理\n  标题: %s", c.region, c.title)
+		}
+	}
+
+	no := []string{
+		"Refurbished Apple Studio Display, Standard glass, Tilt adjustable stand",
+		"翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 15 核中央处理器和 16 核图形处理器) - 银色",
+		"Refurbished MacBook Neo Apple A18 Pro chip - Silver",
+	}
+	for _, title := range no {
+		if ParseSpec(title).NanoTexture {
+			t.Errorf("误判为纳米纹理\n  标题: %s", title)
 		}
 	}
 }
@@ -117,22 +157,22 @@ func TestParseSpecNormalizesSeparators(t *testing.T) {
 	}{
 		{"U+00A0 分隔 tier(西班牙站)",
 			"MacBook Neo reacondicionado con chip A18 Pro de Apple - Cítrico",
-			Spec{"A18 Pro", 0, 0}},
+			Spec{"A18 Pro", 0, 0, false}},
 		{"U+00A0 分隔 tier(意大利站)",
 			"MacBook Pro 14\" ricondizionato con chip Apple M4 Max, CPU 16‑core e GPU 40‑core",
-			Spec{"M4 Max", 16, 40}},
+			Spec{"M4 Max", 16, 40, false}},
 		{"U+2011 非断行连字符(德国站)",
 			"Refurbished 13\" MacBook Air mit Apple M2 Chip, 8‑Core CPU und 10‑Core GPU",
-			Spec{"M2", 8, 10}},
+			Spec{"M2", 8, 10, false}},
 		{"U+2014 em dash(澳洲站)",
 			"Refurbished Mac mini Apple M4 Chip with 10-Core CPU and 10-Core GPU — Silver",
-			Spec{"M4", 10, 10}},
+			Spec{"M4", 10, 10, false}},
 		{"U+202F 窄不间断空格",
 			"Refurbished MacBook Pro Apple M5 Pro chip with 12-Core CPU",
-			Spec{"M5 Pro", 12, 0}},
+			Spec{"M5 Pro", 12, 0, false}},
 		{"U+3000 全角空格",
 			"MacBook Pro Apple M5　Max 晶片",
-			Spec{"M5 Max", 0, 0}},
+			Spec{"M5 Max", 0, 0, false}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

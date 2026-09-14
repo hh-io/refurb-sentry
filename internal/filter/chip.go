@@ -12,6 +12,9 @@ type Spec struct {
 	Chip     string // 归一化芯片名,如 "M5 Pro"、"A18 Pro";空串表示未能识别
 	CPUCores int    // 0 表示未能识别
 	GPUCores int
+	// NanoTexture 表示标题声明了纳米纹理玻璃。false 同时涵盖「标准玻璃」与「没认出来」,
+	// 上游没有对应维度,两者无从区分。
+	NanoTexture bool
 }
 
 // 标题是全项目唯一的非结构化数据源,各语言站点的语序差异极大(均为实测):
@@ -48,6 +51,19 @@ var (
 		regexp.MustCompile(`(\d+)\s*-?\s*` + coreUnit + `[\s-]*(?:GPU|图形处理器|圖形處理器)`),
 		regexp.MustCompile(`GPU\s*(?:de\s*|van\s*)?(\d+)\s*-?\s*` + coreUnit),
 	}
+
+	// nanoTextureRE 认纳米纹理玻璃。它同样只存在于标题里,各站写法(均为实测,覆盖 mac 与 ipad):
+	//
+	//	US/UK/CA/AU/NZ/IE/SG/JP  Nano-texture glass / display、Nano-textureガラス
+	//	DE/CH  Display mit Nanotextur、Nanotexturglas     NL  glas met nanotextuur
+	//	FR/BE  écran nano-texturé      IT  vetro con nanotexture      ES  pantalla nanotexturizada
+	//	CN  纳米纹理      HK  納米紋理      TW  奈米紋理
+	//
+	// 拉丁语系只锚定 "nano" + "text" 这个共同前缀,词尾(-ure/-ur/-uur/-uré/-urizada)交给各语言。
+	// 连字符用 \p{Pd} 整类:NormalizeTitle 已折叠已知码位,这里再兜一层,
+	// 免得哪个站点换了一个表里没有的连字符就让整个地区悄悄认不出来。
+	// KR 站实测时只有 3 件在售且都不带纳米纹理,韩文写法未经核实。
+	nanoTextureRE = regexp.MustCompile(`(?i)nano\p{Pd}?text|纳米纹理|納米紋理|奈米紋理`)
 )
 
 // dashNormalizer 把各站点混用的 Unicode 连字符与空格折成 ASCII。
@@ -84,6 +100,7 @@ func ParseSpec(title string) Spec {
 
 	s.CPUCores = firstInt(t, cpuREs)
 	s.GPUCores = firstInt(t, gpuREs)
+	s.NanoTexture = nanoTextureRE.MatchString(t)
 
 	// 标题里已经出现 CPU/GPU 核心数,本身就足以说明它在描述一台带芯片的机器,
 	// 此时不必再要求出现 Apple/chip 之类的指示词。
